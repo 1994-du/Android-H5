@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
           target: env.VITE_PROXY,
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path.replace(/^\/api/, ''),
+          rewrite: (path) => path.replace(/^\/api/, '/api'),
         },
       },
     },

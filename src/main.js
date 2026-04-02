@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import router from './router'
 import App from './App.vue'
 import VConsole from 'vconsole'
@@ -20,8 +21,14 @@ window.addEventListener('statusBarReady', () => {
 })
 const app = createApp(App)
 
+// 创建 Pinia 实例
+const pinia = createPinia()
+
+// 添加持久化插件
+pinia.use(piniaPluginPersistedstate)
+
 app.use(Vant)
-app.use(createPinia())
+app.use(pinia)
 app.use(router)
 
 app.mount('#app')
