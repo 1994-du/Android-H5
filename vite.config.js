@@ -4,6 +4,8 @@ import Components from 'unplugin-vue-components/vite'
 import { VantResolver } from '@vant/auto-import-resolver'
 import { fileURLToPath, URL } from 'node:url'
 
+const buildTime = Date.now()
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd())
   
@@ -33,5 +35,14 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          entryFileNames: `assets/[name]-${buildTime}-[hash].js`,
+          chunkFileNames: `assets/[name]-${buildTime}-[hash].js`,
+          assetFileNames: `assets/[name]-${buildTime}-[hash].[ext]`
+        }
+      }
+    }
   }
 })

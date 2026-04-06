@@ -1,35 +1,30 @@
 <template>
   <div class="login-container">
     <div class="login-card">
-      <!-- Logo区域 -->
       <div class="logo-section">
         <div class="logo">
-          <span class="logo-icon">🔐</span>
+          <span class="logo-icon">{{ isLogin ? '🔐' : '📝' }}</span>
         </div>
-        <h1 class="brand-name">用户登录</h1>
-        <p class="brand-desc">欢迎回来，请登录您的账户</p>
+        <h1 class="brand-name">{{ isLogin ? '用户登录' : '用户注册' }}</h1>
+        <p class="brand-desc">{{ isLogin ? '欢迎回来，请登录您的账户' : '创建新账户，开始聊天' }}</p>
       </div>
 
-      <!-- 登录表单 -->
       <div class="login-form">
-        <!-- 错误提示 -->
         <div v-if="errorMessage" class="error-message">
           <span class="error-icon">⚠️</span>
           {{ errorMessage }}
         </div>
 
-        <!-- 用户名输入 -->
         <div class="form-group">
           <label class="form-label">用户名</label>
           <van-field
             v-model="username"
-            placeholder="请输入用户名或邮箱"
+            placeholder="请输入用户名"
             class="form-input"
             clearable
           />
         </div>
 
-        <!-- 密码输入 -->
         <div class="form-group">
           <label class="form-label">密码</label>
           <van-field
@@ -41,27 +36,36 @@
           />
         </div>
 
-        <!-- 记住我和忘记密码 -->
-        <div class="form-options">
-          <van-checkbox v-model="rememberMe">记住我</van-checkbox>
-          <a href="#" class="forgot-password">忘记密码？</a>
+        <div v-if="!isLogin" class="form-group">
+          <label class="form-label">确认密码</label>
+          <van-field
+            v-model="confirmPassword"
+            placeholder="请再次输入密码"
+            type="password"
+            class="form-input"
+            clearable
+          />
         </div>
 
-        <!-- 登录按钮 -->
+        <div v-if="isLogin" class="form-options">
+          <van-checkbox v-model="rememberMe">记住我</van-checkbox>
+        </div>
+
         <van-button
           type="primary"
-          @click="login"
+          @click="handleSubmit"
           class="login-btn"
           :loading="loading"
           block
         >
-          登录
+          {{ isLogin ? '登录' : '注册' }}
         </van-button>
 
-        <!-- 注册链接 -->
-        <div class="register-link">
-          还没有账户？
-          <a href="#" class="register-btn">立即注册</a>
+        <div class="switch-link">
+          {{ isLogin ? '还没有账户？' : '已有账户？' }}
+          <a href="#" class="switch-btn" @click.prevent="switchMode">
+            {{ isLogin ? '立即注册' : '去登录' }}
+          </a>
         </div>
       </div>
     </div>
@@ -71,74 +75,92 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { login as loginApi } from '@/api/auth'
+import { login, register } from '@/api/auth'
 import { showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const userStore = useUserStore()
+
+const isLogin = ref(true)
 const username = ref('')
 const password = ref('')
+const confirmPassword = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 const rememberMe = ref(false)
 
-const login = async () => {
-  // 表单验证
+const switchMode = () => {
+  isLogin.value = !isLogin.value
+  errorMessage.value = ''
+  confirmPassword.value = ''
+}
+
+const validateForm = () => {
   if (!username.value) {
     errorMessage.value = '请输入用户名'
-    return
+    return false
+  }
+  if (username.value.length < 2) {
+    errorMessage.value = '用户名至少2个字符'
+    return false
   }
   if (!password.value) {
     errorMessage.value = '请输入密码'
-    return
+    return false
   }
+  if (password.value.length < 6) {
+    errorMessage.value = '密码至少6个字符'
+    return false
+  }
+  if (!isLogin.value && password.value !== confirmPassword.value) {
+    errorMessage.value = '两次密码输入不一致'
+    return false
+  }
+  return true
+}
+
+const handleSubmit = async () => {
+  if (!validateForm()) return
 
   loading.value = true
   errorMessage.value = ''
 
   try {
-    // 调用登录接口
-    const res = await loginApi({
+    const apiFunc = isLogin.value ? login : register
+    const res = await apiFunc({
       username: username.value,
       password: password.value
     })
 
-    // 登录成功处理
-    console.log('登录成功:', res)
-    
-    // 保存用户信息到Pinia store
+    console.log(isLogin.value ? '登录成功:' : '注册成功:', res)
+
     if (res.code === 200) {
-      // 使用Pinia保存用户信息
       userStore.setUserInfo(res)
       
-      // 记住我功能
-      if (rememberMe.value) {
+      if (isLogin.value && rememberMe.value) {
         localStorage.setItem('username', username.value)
       } else {
         localStorage.removeItem('username')
       }
       
-      // 显示成功提示
       showToast({
         type: 'success',
-        message: '登录成功'
+        message: isLogin.value ? '登录成功' : '注册成功'
       })
       
-      // 跳转到首页
-      router.push('/home')
+      router.push('/public-chat')
     } else {
-      errorMessage.value = res.msg || '登录失败，请检查用户名和密码'
+      errorMessage.value = res.msg || res.message || (isLogin.value ? '登录失败' : '注册失败')
     }
   } catch (error) {
-    console.error('登录失败:', error)
-    errorMessage.value = error.message || '登录失败，请检查用户名和密码'
+    console.error(isLogin.value ? '登录失败:' : '注册失败:', error)
+    errorMessage.value = error.message || (isLogin.value ? '登录失败，请稍后重试' : '注册失败，请稍后重试')
   } finally {
     loading.value = false
   }
 }
 
-// 页面加载时，检查是否有记住的用户名
 const init = () => {
   const savedUsername = localStorage.getItem('username')
   if (savedUsername) {
@@ -151,7 +173,6 @@ init()
 </script>
 
 <style scoped>
-/* 页面容器 */
 .login-container {
   min-height: 100vh;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -161,7 +182,6 @@ init()
   padding: 20px;
 }
 
-/* 登录卡片 */
 .login-card {
   background: #ffffff;
   border-radius: 20px;
@@ -172,7 +192,6 @@ init()
   animation: slideUp 0.6s ease-out;
 }
 
-/* Logo区域 */
 .logo-section {
   text-align: center;
   margin-bottom: 30px;
@@ -207,14 +226,12 @@ init()
   margin: 0;
 }
 
-/* 登录表单 */
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-/* 错误消息 */
 .error-message {
   background-color: #fff1f0;
   border: 1px solid #ffccc7;
@@ -231,7 +248,6 @@ init()
   font-size: 16px;
 }
 
-/* 表单组 */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -249,7 +265,6 @@ init()
   overflow: hidden;
 }
 
-/* 输入框样式 */
 .form-input :deep(.van-field__control) {
   border-radius: 12px;
   border: 2px solid #e0e0e0;
@@ -263,24 +278,12 @@ init()
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-/* 表单选项 */
 .form-options {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.forgot-password {
-  font-size: 14px;
-  color: #667eea;
-  text-decoration: none;
-}
-
-.forgot-password:hover {
-  text-decoration: underline;
-}
-
-/* 登录按钮 */
 .login-btn {
   border-radius: 12px;
   height: 48px;
@@ -296,24 +299,22 @@ init()
   box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
 }
 
-/* 注册链接 */
-.register-link {
+.switch-link {
   text-align: center;
   font-size: 14px;
   color: #666;
 }
 
-.register-btn {
+.switch-btn {
   color: #667eea;
   font-weight: 600;
   text-decoration: none;
 }
 
-.register-btn:hover {
+.switch-btn:hover {
   text-decoration: underline;
 }
 
-/* 动画 */
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -325,7 +326,6 @@ init()
   }
 }
 
-/* 响应式设计 */
 @media (max-width: 480px) {
   .login-card {
     padding: 30px 20px;

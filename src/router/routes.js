@@ -12,19 +12,12 @@ export default [
     }
   },
   {
-    path: '/home',
-    name: 'Home',
-    component: () => import('@/views/Home.vue'),
+    path: '/public-chat',
+    name: 'PublicChat',
+    component: () => import('@/views/PublicChat.vue'),
     meta: {
-      title: '首页'
-    }
-  },
-  {
-    path: '/message',
-    name: 'Message',
-    component: () => import('@/views/Message.vue'),
-    meta: {
-      title: '消息'
+      title: '公共聊天',
+      requiresAuth: true
     }
   },
   {
@@ -32,7 +25,8 @@ export default [
     name: 'About',
     component: () => import('@/views/About.vue'),
     meta: {
-      title: '关于'
+      title: '我的',
+      requiresAuth: true
     }
   },
   {
@@ -40,7 +34,17 @@ export default [
     name: 'ProfileEdit',
     component: () => import('@/views/ProfileEdit.vue'),
     meta: {
-      title: '编辑资料'
+      title: '编辑资料',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/nine-ball',
+    name: 'NineBall',
+    component: () => import('@/views/NineBall.vue'),
+    meta: {
+      title: '九球计分',
+      requiresAuth: true
     }
   }
 ]
