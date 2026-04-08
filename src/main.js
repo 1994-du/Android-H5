@@ -5,10 +5,9 @@ import router from './router'
 import App from './App.vue'
 import VConsole from 'vconsole'
 
-import 'vant/lib/index.css'
-import './style.less'
 import Vant from 'vant'
 import 'vant/lib/index.css'
+import './style.less'
 
 new VConsole()
 window.addEventListener('statusBarReady', () => {

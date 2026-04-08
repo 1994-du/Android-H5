@@ -46,5 +46,32 @@ export default [
       title: '九球计分',
       requiresAuth: true
     }
+  },
+  {
+    path: '/user-select',
+    name: 'UserSelect',
+    component: () => import('@/views/UserSelect.vue'),
+    meta: {
+      title: '选人页面',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/card-type',
+    name: 'CardType',
+    component: () => import('@/views/CardType.vue'),
+    meta: {
+      title: '卡片类型',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/issue-card',
+    name: 'IssueCard',
+    component: () => import('@/views/IssueCard.vue'),
+    meta: {
+      title: '发卡',
+      requiresAuth: true
+    }
   }
 ]

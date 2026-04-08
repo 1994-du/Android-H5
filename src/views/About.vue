@@ -29,6 +29,12 @@
           is-link
           to="/nine-ball"
         />
+        <van-cell 
+          title="发卡" 
+          icon="credit-card"
+          is-link
+          to="/card-type"
+        />
       </van-cell-group>
       
       <van-button 
