@@ -73,5 +73,50 @@ export default [
       title: '发卡',
       requiresAuth: true
     }
+  },
+  {
+    path: '/send-card',
+    name: 'SendCard',
+    component: () => import('@/views/SendCard.vue'),
+    meta: {
+      title: '选择卡片',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/send-card/friends',
+    name: 'SelectFriend',
+    component: () => import('@/views/SelectFriend.vue'),
+    meta: {
+      title: '选择好友',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/send-card/confirm',
+    name: 'ConfirmSend',
+    component: () => import('@/views/ConfirmSend.vue'),
+    meta: {
+      title: '确认发送',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/send-card/success',
+    name: 'SendSuccess',
+    component: () => import('@/views/SendSuccess.vue'),
+    meta: {
+      title: '发送成功',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/receive-card/:id',
+    name: 'ReceiveCard',
+    component: () => import('@/views/ReceiveCard.vue'),
+    meta: {
+      title: '收到卡片',
+      requiresAuth: true
+    }
   }
 ]
