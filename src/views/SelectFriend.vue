@@ -8,14 +8,14 @@
       </div>
       
       <div class="action-button">
-        <van-button 
+        <Button 
           type="primary" 
           block 
           @click="goToUserSelect"
           class="select-btn"
         >
           选择好友
-        </van-button>
+        </Button>
       </div>
     </div>
   </div>
@@ -23,7 +23,7 @@
 
 <script setup>
 import { useRouter } from 'vue-router';
-import { VanButton } from 'vant';
+import { Button } from 'vant';
 import DxxHeader from '@/components/DxxHeader.vue';
 
 const router = useRouter();

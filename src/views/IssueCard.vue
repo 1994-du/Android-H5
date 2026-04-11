@@ -1,30 +1,30 @@
 <template>
   <DxxHeader :show-back="true" @click-back="handleBack">发卡</DxxHeader>
   <div class="issue-card dxx_wrap">
-    <div class="content">
+    <div class="content" :class="{ 'blur-content': showEnvelope }">
       <h2 class="page-title">{{ cardName }} - 选择卡片</h2>
       
       <!-- 二级卡片轮播 -->
       <div class="card-carousel">
-        <van-swipe :autoplay="false" indicator-color="#1989fa">
-          <van-swipe-item v-for="card in subCards" :key="card.id">
+        <Swipe autoplay="false" indicator-color="#1989fa">
+          <SwipeItem v-for="card in subCards" :key="card.id">
             <div class="sub-card">
               <div class="sub-card-icon">{{ card.icon }}</div>
               <h3 class="sub-card-name">{{ card.name }}</h3>
               <p class="sub-card-desc">{{ card.description }}</p>
             </div>
-          </van-swipe-item>
-        </van-swipe>
+          </SwipeItem>
+        </Swipe>
       </div>
       
       <!-- 选择接收人 -->
       <div class="recipient-section">
         <div class="recipient-menu" @click="openUserSelect">
           <div class="menu-left">
-            <van-icon name="user" class="menu-icon" />
+            <Icon name="user" class="menu-icon" />
             <span class="menu-text">选择接收人</span>
           </div>
-          <van-icon name="arrow" class="menu-arrow" />
+          <Icon name="arrow" class="menu-arrow" />
         </div>
         <div v-if="recipient" class="selected-recipient">
           已选择：{{ recipient }}
@@ -34,7 +34,7 @@
       <!-- 留言区域 -->
       <div class="message-section">
         <h3 class="section-title">留言</h3>
-        <van-field
+        <Field
           v-model="message"
           type="textarea"
           :rows="4"
@@ -43,25 +43,71 @@
       </div>
       
       <!-- 发卡按钮 -->
-      <van-button type="primary" block class="issue-btn" @click="handleIssueCard">
+      <Button type="primary" block class="issue-btn" :loading="loading" @click="handleIssueCard">
         发送卡片
-      </van-button>
+      </Button>
+    </div>
+    
+    <!-- 信封动画 -->
+    <div class="envelope-overlay" v-if="showEnvelope">
+      <div class="envelope-animation">
+        <div class="envelope" ref="envelopeRef">
+          <div class="envelope-front"></div>
+          <div class="envelope-back"></div>
+          <div class="envelope-flap"></div>
+          <div class="envelope-content">
+            <div class="success-content">
+              <!-- 成功图标 -->
+              <div class="success-icon">
+                <div class="check-circle">
+                  <div class="checkmark"></div>
+                </div>
+              </div>
+              
+              <!-- 成功消息 -->
+              <h1 class="success-title">发送成功！</h1>
+              <p class="success-message">你的卡片已成功发送给 {{ recipient }}</p>
+              
+              <!-- 卡片预览 -->
+              <div class="card-preview">
+                <img :src="cardImageUrl" :alt="cardName" class="card-image" />
+                <div class="card-name">{{ cardName }}</div>
+              </div>
+              
+              <!-- 操作按钮 -->
+              <div class="action-buttons">
+                <button class="primary-btn" @click="resetForm">再发一张</button>
+                <button class="secondary-btn" @click="goHome">返回首页</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { showToast } from 'vant'
+import { showToast, Swipe, SwipeItem, Icon, Field, Button } from 'vant'
+import gsap from 'gsap'
 import DxxHeader from '@/components/DxxHeader.vue'
+import { sendCard } from '@/api/card'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
 
 // 卡片类型信息
 const cardType = ref(route.query.cardType || '1')
 const cardName = ref(route.query.cardName || '卡片')
+
+// 卡片图片URL
+const cardImageUrl = computed(() => {
+  return 'https://via.placeholder.com/200x150?text=' + encodeURIComponent(cardName.value)
+})
 
 // 二级卡片数据
 const subCards = ref([])
@@ -69,6 +115,10 @@ const subCards = ref([])
 // 接收人和留言
 const recipient = ref(route.query.recipient || '')
 const message = ref('')
+const selectedCardUser = ref(null)
+const loading = ref(false)
+const showEnvelope = ref(false)
+const envelopeRef = ref(null)
 
 // 模拟获取二级卡片数据
 const fetchSubCards = async () => {
@@ -148,13 +198,15 @@ const openUserSelect = () => {
   router.push({
     path: '/user-select',
     query: {
-      from: 'issue-card'
+      from: 'issue-card',
+      cardType: cardType.value,
+      cardName: cardName.value
     }
   })
 }
 
 // 处理发卡
-const handleIssueCard = () => {
+const handleIssueCard = async () => {
   if (!recipient.value) {
     showToast({
       message: '请选择接收人',
@@ -163,15 +215,151 @@ const handleIssueCard = () => {
     return
   }
   
-  showToast({
-    message: `卡片发送成功！接收人：${recipient.value}`,
-    type: 'success'
+  loading.value = true
+  try {
+    await sendCard({
+      title: cardName.value,
+      content: message.value || '新活动开始了，快来参加！',
+      userId: selectedCardUser.value?.id,
+      senderId: userStore.id,
+      buttonText: '立即参加',
+      buttonUrl: 'https://example.com/activity'
+    })
+    
+    showToast({
+      message: `卡片发送成功！接收人：${recipient.value}`,
+      type: 'success'
+    })
+    
+    // 清除 sessionStorage 中的用户信息
+    sessionStorage.removeItem('selectedCardUser')
+    
+    // 显示信封动画
+    showEnvelope.value = true
+    setTimeout(() => {
+      initEnvelopeAnimation()
+    }, 100)
+  } catch (error) {
+    showToast({
+      message: error.message || '卡片发送失败，请重试',
+      type: 'error'
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+// 初始化信封动画
+const initEnvelopeAnimation = () => {
+  const envelope = envelopeRef.value
+  if (!envelope) return
+  
+  const envelopeFlap = envelope.querySelector('.envelope-flap')
+  const envelopeContent = envelope.querySelector('.envelope-content')
+  
+  if (!envelopeFlap || !envelopeContent) return
+  
+  // 创建 GSAP 时间线
+  const tl = gsap.timeline({
+    defaults: {
+      duration: 1,
+      ease: 'power3.out'
+    }
   })
   
-  // 发送成功后返回上一页
-  setTimeout(() => {
-    router.back()
-  }, 1500)
+  // 初始状态
+  gsap.set(envelope, {
+    scale: 0.8,
+    opacity: 0,
+    rotationY: 0
+  })
+  
+  gsap.set(envelopeFlap, {
+    rotationX: 0,
+    transformOrigin: 'top center'
+  })
+  
+  gsap.set(envelopeContent, {
+    y: 50,
+    scale: 0.8,
+    opacity: 0
+  })
+  
+  // 动画序列
+  tl
+    // 信封出现
+    .to(envelope, {
+      scale: 1,
+      opacity: 1,
+      duration: 0.8
+    })
+    // 信封轻微旋转
+    .to(envelope, {
+      rotationY: 5,
+      duration: 0.5
+    })
+    // 信封盖子打开
+    .to(envelopeFlap, {
+      rotationX: 180,
+      duration: 1
+    }, '+=0.5')
+    // 内容滑出
+    .to(envelopeContent, {
+      y: 0,
+      scale: 1,
+      opacity: 1,
+      duration: 0.8
+    }, '-=0.5')
+    // 内容元素依次出现
+    .from('.success-icon', {
+      scale: 0,
+      opacity: 0,
+      duration: 0.5
+    }, '+=0.3')
+    .from('.success-title', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5
+    }, '+=0.2')
+    .from('.success-message', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5
+    }, '+=0.2')
+    .from('.card-preview', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5
+    }, '+=0.2')
+    .from('.action-buttons', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5
+    }, '+=0.2')
+    // 信封盖子关闭
+    .to(envelopeFlap, {
+      rotationX: 0,
+      duration: 1
+    }, '+=1')
+    // 最终状态
+    .to(envelope, {
+      rotationY: 0,
+      duration: 0.5
+    })
+}
+
+// 重置表单，再发一张
+const resetForm = () => {
+  showEnvelope.value = false
+  message.value = ''
+  recipient.value = ''
+  selectedCardUser.value = null
+}
+
+// 返回首页
+const goHome = () => {
+  showEnvelope.value = false
+  router.push('/public-chat')
 }
 
 // 处理返回
@@ -182,6 +370,12 @@ const handleBack = () => {
 // 页面加载时获取二级卡片数据
 onMounted(() => {
   fetchSubCards()
+  
+  // 从 sessionStorage 中读取用户信息
+  const savedUser = sessionStorage.getItem('selectedCardUser')
+  if (savedUser) {
+    selectedCardUser.value = JSON.parse(savedUser)
+  }
 })
 </script>
 
@@ -197,6 +391,12 @@ onMounted(() => {
   flex: 1;
   padding: 15px;
   padding-top: calc(46px + var(--status-bar-height) + 15px);
+  transition: filter 0.3s ease;
+}
+
+.blur-content {
+  filter: blur(8px);
+  pointer-events: none;
 }
 
 .page-title {
@@ -306,5 +506,212 @@ onMounted(() => {
   border-radius: 12px;
   height: 48px;
   font-size: 16px;
+}
+
+.envelope-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  padding: 20px;
+  perspective: 1000px;
+}
+
+.envelope-animation {
+  position: relative;
+  width: 100%;
+  max-width: 450px;
+  height: 500px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.envelope {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+}
+
+.envelope-front,
+.envelope-back,
+.envelope-flap {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: #4A90E2;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.envelope-front {
+  z-index: 3;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.envelope-back {
+  z-index: 1;
+  transform: translateZ(-10px);
+}
+
+.envelope-flap {
+  z-index: 4;
+  clip-path: polygon(0 0, 100% 0, 50% 50%, 0 0);
+  transform-origin: top center;
+}
+
+.envelope-content {
+  position: relative;
+  z-index: 2;
+  width: 90%;
+  height: 80%;
+  margin: 5% auto;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform-origin: center;
+}
+
+.success-content {
+  background-color: white;
+  border-radius: 12px;
+  padding: 30px 20px;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.success-icon {
+  margin-bottom: 20px;
+}
+
+.check-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background-color: #50E3C2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 auto;
+  animation: pulse 1s ease-in-out;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.checkmark {
+  width: 40px;
+  height: 20px;
+  border-left: 4px solid white;
+  border-bottom: 4px solid white;
+  transform: rotate(-45deg);
+  animation: drawCheck 0.5s ease-in-out 0.5s forwards;
+  opacity: 0;
+}
+
+@keyframes drawCheck {
+  from {
+    opacity: 0;
+    transform: rotate(-45deg) scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-45deg) scale(1);
+  }
+}
+
+.success-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+}
+
+.success-message {
+  font-size: 16px;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.card-preview {
+  background-color: #f9f9f9;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.card-image {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.card-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.primary-btn {
+  padding: 14px;
+  background-color: #4A90E2;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.primary-btn:hover {
+  background-color: #357ABD;
+}
+
+.secondary-btn {
+  padding: 14px;
+  background-color: white;
+  color: #4A90E2;
+  border: 1px solid #4A90E2;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.secondary-btn:hover {
+  background-color: #f0f7ff;
 }
 </style>

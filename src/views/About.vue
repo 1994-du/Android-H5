@@ -35,6 +35,12 @@
           is-link
           to="/card-type"
         />
+        <van-cell 
+          title="收卡" 
+          icon="gift-o"
+          is-link
+          to="/receive-card"
+        />
       </van-cell-group>
       
       <van-button 

@@ -78,6 +78,7 @@ import { useRouter } from 'vue-router'
 import { login, register } from '@/api/auth'
 import { showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
+import wsService from '@/utils/websocket'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -148,6 +149,17 @@ const handleSubmit = async () => {
         type: 'success',
         message: isLogin.value ? '登录成功' : '注册成功'
       })
+      
+      // 登录成功后立即建立WebSocket连接
+      if (isLogin.value) {
+        const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
+        const userInfo = {
+          userId: Number(userStore.id),
+          username: userStore.username,
+          avatar: userStore.avatar
+        }
+        wsService.connect(wsUrl, userInfo)
+      }
       
       router.push('/public-chat')
     } else {

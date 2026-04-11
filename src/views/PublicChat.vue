@@ -35,7 +35,7 @@
           </div>
           <div class="message-content">
             <div class="username" v-if="!msg.isSelf">{{ msg.fromUsername }}</div>
-            <div class="bubble">{{ msg.content }}</div>
+            <div :class="['bubble', msg.type === 'card' ? 'card-bubble' : '']">{{ msg.content }}</div>
             <div class="time">{{ msg.time }}</div>
           </div>
         </div>
@@ -162,26 +162,23 @@ const setKeyboardHeight = (visible, height) => {
 }
 
 const initWebSocket = () => {
-  if (userStore.token && userStore.id) {
-    if (wsService.isConnected && wsService.isReady) {
-      console.log('WebSocket 已连接且已准备好，跳过初始化')
-      return
-    }
+  // WebSocket连接已经在登录时建立，这里只需要确保连接正常
+  if (userStore.token && userStore.id && !wsService.isConnected) {
+    console.log('WebSocket未连接，尝试重新连接')
     const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
     const userInfo = {
       userId: Number(userStore.id),
-      username: userStore.username
+      username: userStore.username,
+      avatar: userStore.avatar
     }
     wsService.connect(wsUrl, userInfo)
-  } else {
-    console.log('用户未登录或缺少用户ID，跳过WebSocket初始化')
   }
 }
 
 const messages = computed(() => {
   const currentUserId = Number(userStore.id)
   return wsService.messages
-    .filter(msg => msg.type === 'chat')
+    .filter(msg => msg.type === 'chat' || msg.type === 'card')
     .sort((a, b) => {
       const timeA = a.rawTime ? new Date(a.rawTime).getTime() : (a.id || 0)
       const timeB = b.rawTime ? new Date(b.rawTime).getTime() : (b.id || 0)
@@ -192,6 +189,7 @@ const messages = computed(() => {
       return {
         id: msg.id,
         content: msg.message,
+        type: msg.type,
         isSelf: isSelf,
         avatar: msg.avatar,
         time: msg.time,
@@ -303,14 +301,15 @@ const handleUserOffline = (user) => {
 }
 
 const handleReady = () => {
-  wsService.send({
-    type: 'userOnline',
-    payload: {
-      userId: Number(userStore.id),
-      username: userStore.username,
-      avatar: userStore.avatar
-    }
-  })
+  // 上线通知已经在WebSocket的onopen事件中发送了
+  console.log('WebSocket已准备好')
+}
+
+const handleChatHistory = (messages) => {
+  console.log('收到聊天历史:', messages)
+  // 聊天历史已经在WebSocket服务中处理并添加到messages数组
+  // 这里可以添加额外的处理逻辑
+  scrollToBottom()
 }
 
 watch(() => userStore.token, (newToken, oldToken) => {
@@ -318,8 +317,6 @@ watch(() => userStore.token, (newToken, oldToken) => {
     nextTick(() => {
       initWebSocket()
     })
-  } else if (!newToken) {
-    wsService.close()
   }
 })
 
@@ -331,6 +328,7 @@ onMounted(() => {
   
   wsService.on('ready', handleReady)
   wsService.on('chat', handleChatMessage)
+  wsService.on('chatHistory', handleChatHistory)
   wsService.on('onlineUsers', handleOnlineUsers)
   wsService.on('userOnline', handleUserOnline)
   wsService.on('userOffline', handleUserOffline)
@@ -342,22 +340,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (wsService.isConnected) {
-    wsService.send({
-      type: 'userOffline',
-      payload: {
-        userId: Number(userStore.id),
-        username: userStore.username
-      }
-    })
-  }
-  
   wsService.off('ready', handleReady)
   wsService.off('chat', handleChatMessage)
+  wsService.off('chatHistory', handleChatHistory)
   wsService.off('onlineUsers', handleOnlineUsers)
   wsService.off('userOnline', handleUserOnline)
   wsService.off('userOffline', handleUserOffline)
-  wsService.close()
   
   window.handleKeyboardStatus = null
 })
@@ -435,6 +423,13 @@ onUnmounted(() => {
   word-wrap: break-word;
   word-break: break-all;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.card-bubble {
+  background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%) !important;
+  color: #333 !important;
+  border: 1px solid #ff9a9e;
+  font-weight: 500;
 }
 
 .time {

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import wsService from '@/utils/websocket'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -35,6 +36,9 @@ export const useUserStore = defineStore('user', {
       }
     },
     clearUserInfo() {
+      // 退出登录前断开WebSocket连接并发送下线通知
+      wsService.close()
+      
       this.id = null
       this.avatar = ''
       this.token = ''

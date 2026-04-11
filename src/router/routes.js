@@ -111,11 +111,20 @@ export default [
     }
   },
   {
-    path: '/receive-card/:id',
+    path: '/receive-card',
     name: 'ReceiveCard',
     component: () => import('@/views/ReceiveCard.vue'),
     meta: {
       title: '收到卡片',
+      requiresAuth: true
+    }
+  },
+  {
+    path: '/receive-card/:id',
+    name: 'CardDetail',
+    component: () => import('@/views/ReceiveCard.vue'),
+    meta: {
+      title: '卡片详情',
       requiresAuth: true
     }
   }

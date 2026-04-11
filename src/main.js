@@ -9,6 +9,8 @@ import Vant from 'vant'
 import 'vant/lib/index.css'
 import './style.less'
 
+
+
 new VConsole()
 window.addEventListener('statusBarReady', () => {
   console.log('拿到了:', window.STATUS_BAR_HEIGHT)

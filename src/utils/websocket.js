@@ -1,4 +1,6 @@
 import { reactive } from 'vue'
+import { showToast } from 'vant'
+import { useUserStore } from '@/stores/user'
 
 class WebSocketService {
   constructor() {
@@ -46,6 +48,11 @@ class WebSocketService {
       this.isReady = true
       this.emit('open')
       this.emit('ready')
+      
+      // 连接成功后发送上线通知
+      if (this.userInfo) {
+        this.sendOnline()
+      }
     }
 
     this.ws.onmessage = (event) => {
@@ -79,6 +86,51 @@ class WebSocketService {
         console.log('收到聊天消息:', data.payload)
         this.addChatMessage(data.payload)
         this.emit('chat', data.payload)
+        break
+      case 'card':
+        console.log('收到卡片消息:', data)
+        console.log('卡片消息参数:', data.payload)
+        
+        // 添加卡片消息到历史记录
+        this.addCardMessage(data.payload)
+        
+        // 检查是否是给当前用户发送的
+        const userStore = useUserStore()
+        const currentUserId = userStore.id
+        const messageUserId = data.payload.userId
+        
+        // 将两者都转换为数字进行比较
+        const currentUserIdNum = Number(currentUserId)
+        const messageUserIdNum = Number(messageUserId)
+        
+        console.log('当前用户ID:', currentUserId, '(数字:', currentUserIdNum, ') 消息目标用户ID:', messageUserId, '(数字:', messageUserIdNum, ')')
+        
+        if (currentUserIdNum && messageUserIdNum === currentUserIdNum) {
+          console.log('收到卡片消息')
+          showToast({
+            message: '收到新卡片！',
+            type: 'success'
+          })
+        }
+        
+        this.emit('card', data.payload)
+        break
+      case 'chatHistory':
+        console.log('收到聊天历史消息:', data)
+        console.log('聊天历史消息参数:', data.payload)
+        
+        // 处理聊天历史消息
+        if (Array.isArray(data.payload)) {
+          data.payload.forEach(msg => {
+            if (msg.type === 'chat') {
+              this.addChatMessage(msg)
+            } else if (msg.type === 'card') {
+              this.addCardMessage(msg)
+            }
+          })
+        }
+        
+        this.emit('chatHistory', data.payload)
         break
       case 'onlineUsers':
         console.log('收到在线用户列表:', data.payload)
@@ -116,7 +168,34 @@ class WebSocketService {
       rawTime: rawTime
     }
     
-    console.log('添加消息:', messageData)
+    console.log('添加聊天消息:', messageData)
+    this.messages.push(messageData)
+  }
+  
+  addCardMessage(payload) {
+    const now = new Date()
+    const hours = now.getHours().toString().padStart(2, '0')
+    const minutes = now.getMinutes().toString().padStart(2, '0')
+    const time = `${hours}:${minutes}`
+    const rawTime = now.toISOString()
+    
+    const avatar = payload.avatar || payload.fromAvatar || ''
+    const avatarUrl = this.getAvatarUrl(avatar)
+    
+    const messageData = {
+      id: payload.id || Date.now(),
+      type: 'card',
+      fromUsername: payload.fromUsername || payload.username,
+      userId: Number(payload.userId),
+      message: `收到一张卡片: ${payload.title || '卡片'}`,
+      content: payload.content || '',
+      title: payload.title || '卡片',
+      avatar: avatarUrl,
+      time: time,
+      rawTime: rawTime
+    }
+    
+    console.log('添加卡片消息到历史记录:', messageData)
     this.messages.push(messageData)
   }
 
@@ -174,16 +253,54 @@ class WebSocketService {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-      this.isConnected = false
-      this.isReady = false
+    if (this.ws && this.isConnected) {
+      // 关闭连接前发送下线通知
+      this.sendOffline()
+      // 等待一小段时间确保通知发送成功
+      setTimeout(() => {
+        if (this.ws) {
+          this.ws.close()
+          this.ws = null
+          this.isConnected = false
+          this.isReady = false
+        }
+      }, 100)
     }
   }
 
   clearMessages() {
     this.messages.length = 0
+  }
+
+  // 发送上线通知
+  sendOnline() {
+    if (this.ws && this.isConnected && this.userInfo) {
+      const onlineMsg = {
+        type: 'userOnline',
+        payload: {
+          userId: this.userInfo.userId,
+          username: this.userInfo.username,
+          avatar: this.userInfo.avatar
+        }
+      }
+      this.send(onlineMsg)
+      console.log('发送上线通知:', onlineMsg)
+    }
+  }
+
+  // 发送下线通知
+  sendOffline() {
+    if (this.ws && this.isConnected && this.userInfo) {
+      const offlineMsg = {
+        type: 'userOffline',
+        payload: {
+          userId: this.userInfo.userId,
+          username: this.userInfo.username
+        }
+      }
+      this.send(offlineMsg)
+      console.log('发送下线通知:', offlineMsg)
+    }
   }
 }
 

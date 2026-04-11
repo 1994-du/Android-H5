@@ -2,58 +2,67 @@
   <div class="user-select-page">
     <DxxHeader :show-back="true" @click-back="handleBack">选择用户</DxxHeader>
     
-    <div class="search-box">
-      <van-search
-        v-model="searchValue"
-        placeholder="搜索用户"
-        @search="handleSearch"
-        @input="handleInput"
-      />
-    </div>
-    
-    <div class="content">
+    <div class="container">
+      <!-- 搜索框 -->
+      <div class="search-section">
+        <Search
+          v-model="searchValue"
+          placeholder="搜索用户"
+          @input="handleInput"
+          class="search-input"
+        />
+      </div>
+      
       <!-- 用户列表 -->
-      <div class="user-list-section">
-        <van-list
+      <div class="list-section">
+        <List
           v-model:loading="loading"
           :finished="finished"
           finished-text="没有更多了"
           @load="loadMore"
+          class="user-list"
         >
-          <van-cell
+          <Cell
             v-for="user in userList"
             :key="user.id"
-            :title="user.name"
-            :value="user.department"
+            :title="user.username"
+            :value="user.roleName"
             @click="selectUser(user)"
             :class="{ 'selected': selectedUser?.id === user.id }"
+            class="user-item"
           >
             <template #left>
               <div class="user-avatar">
-                <img :src="user.avatar || 'https://via.placeholder.com/50'" :alt="user.name" />
+                <img :src="user.avatar || 'https://via.placeholder.com/50'" :alt="user.username" />
               </div>
             </template>
             <template #right>
-              <van-checkbox 
+              <Checkbox 
                 v-model="selectedUserId" 
                 :name="user.id"
                 @change="(value) => handleCheckboxChange(value, user)"
+                class="user-checkbox"
               />
             </template>
-          </van-cell>
-        </van-list>
+          </Cell>
+        </List>
+      </div>
+      
+      <!-- 已选择信息 -->
+      <div v-if="selectedUser" class="selected-section">
+        <div class="selected-info">
+          <div class="selected-icon">✓</div>
+          <div class="selected-details">
+            <div class="selected-label">已选择</div>
+            <div class="selected-name">{{ selectedUser.username }}</div>
+          </div>
+        </div>
       </div>
     </div>
     
-    <div v-if="selectedUser" class="selected-section">
-      <div class="selected-info">
-        <span class="selected-label">已选择：</span>
-        <span class="selected-name">{{ selectedUser.name }}</span>
-      </div>
-    </div>
-    
+    <!-- 确认按钮 -->
     <div class="confirm-section">
-      <van-button 
+      <Button 
         type="primary" 
         block 
         :disabled="!selectedUser"
@@ -61,16 +70,17 @@
         class="confirm-btn"
       >
         确认选择
-      </van-button>
+      </Button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { VanSearch, VanList, VanCell, VanCheckbox, VanButton } from 'vant';
+import { Search, List, Cell, Checkbox, Button, showToast } from 'vant';
 import DxxHeader from '@/components/DxxHeader.vue';
+import { getUsers } from '@/api/user';
 
 const router = useRouter();
 const route = useRoute();
@@ -82,9 +92,15 @@ const selectedUserId = ref(null);
 const loading = ref(false);
 const finished = ref(false);
 const page = ref(1);
+const isApiCalling = ref(false);
 
 // 来源页面
-const from = ref(route.query.from || '');
+const from = ref('');
+
+// 监听路由参数变化
+watch(() => route.query.from, (newFrom) => {
+  from.value = newFrom || '';
+}, { immediate: true });
 
 // 处理返回
 const handleBack = () => {
@@ -105,23 +121,56 @@ const mockUserList = [
 
 // 加载用户列表
 const loadUsers = async () => {
+  // 防止重复调用
+  if (isApiCalling.value) return;
+  
   loading.value = true;
-  // 模拟API请求延迟
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // 实际项目中这里应该调用真实的用户列表API
-  // const response = await api.getUsers({ page: page.value, search: searchValue.value });
-  // userList.value = response.data;
-  
-  // 使用模拟数据
-  userList.value = mockUserList;
-  finished.value = true;
-  loading.value = false;
+  isApiCalling.value = true;
+  try {
+    const response = await getUsers({
+      page: page.value,
+      pageSize: 10,
+      keyword: searchValue.value
+    });
+    
+    // 响应拦截器返回的是整个data对象，API返回的数据结构是{code: 200, msg: "获取用户列表成功", data: {total: 5, pageSize: 10, page: 1, list: [用户列表]}, total: null}
+    // 所以需要访问response.data.list来获取用户列表
+    const userData = response.data?.list || [];
+    // 打印用户数据结构，以便了解正确的字段名
+    console.log('用户数据:', userData);
+    
+    if (page.value === 1) {
+      userList.value = userData;
+    } else {
+      userList.value = [...userList.value, ...userData];
+    }
+    
+    // 如果返回的数据少于pageSize，说明没有更多数据了
+    if (userData.length < 10) {
+      finished.value = true;
+    } else {
+      finished.value = false;
+    }
+  } catch (error) {
+    console.error('获取用户列表失败:', error);
+    showToast({
+      message: '获取用户列表失败，请重试',
+      type: 'error'
+    });
+    // 发生错误时使用模拟数据作为 fallback
+    if (page.value === 1) {
+      userList.value = mockUserList;
+      finished.value = true;
+    }
+  } finally {
+    loading.value = false;
+    isApiCalling.value = false;
+  }
 };
 
 // 加载更多
 const loadMore = () => {
-  if (finished.value) return;
+  if (finished.value || loading.value) return;
   page.value++;
   loadUsers();
 };
@@ -134,9 +183,24 @@ const handleSearch = (value) => {
   loadUsers();
 };
 
+// 防抖定时器
+let debounceTimer = null;
+
 // 处理输入
 const handleInput = (value) => {
   searchValue.value = value;
+  
+  // 清除之前的定时器
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+  
+  // 设置新的定时器，300毫秒后执行搜索
+  debounceTimer = setTimeout(() => {
+    page.value = 1;
+    finished.value = false;
+    loadUsers();
+  }, 300);
 };
 
 // 选择用户
@@ -158,13 +222,14 @@ const handleCheckboxChange = (value, user) => {
 const confirmSelection = () => {
   if (selectedUser.value) {
     if (from.value === 'issue-card') {
-      // 跳回发卡页面，并传递选择的用户信息
+      // 跳回发卡页面，并保存完整的用户信息到 sessionStorage
+      sessionStorage.setItem('selectedCardUser', JSON.stringify(selectedUser.value));
       router.push({
         path: '/issue-card',
         query: {
           cardType: route.query.cardType || '',
           cardName: route.query.cardName || '',
-          recipient: selectedUser.value.name
+          recipient: selectedUser.value.username
         }
       });
     } else if (from.value === 'send-card') {
@@ -188,34 +253,60 @@ onMounted(() => {
 .user-select-page {
   min-height: 100vh;
   background-color: #f5f5f5;
-  padding-bottom: 80px;
+  display: flex;
+  flex-direction: column;
 }
 
-.search-box {
-  margin: 16px;
-  background-color: white;
-  border-radius: 12px;
-  overflow: hidden;
-}
-
-.content {
+.container {
   flex: 1;
+  padding: 16px;
+  padding-top: 60px;
 }
 
-.user-list-section {
+.search-section {
+  margin-bottom: 16px;
+}
+
+.search-input {
   background-color: white;
-  margin: 0 16px;
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.list-section {
+  flex: 1;
+  background-color: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+}
+
+.user-list {
+  height: 100%;
+}
+
+.user-item {
+  transition: all 0.2s ease;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.user-item:last-child {
+  border-bottom: none;
+}
+
+.user-item:hover {
+  background-color: #f9f9f9;
 }
 
 .user-avatar {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   overflow: hidden;
-  margin-right: 12px;
+  margin-right: 16px;
+  flex-shrink: 0;
 }
 
 .user-avatar img {
@@ -224,16 +315,20 @@ onMounted(() => {
   object-fit: cover;
 }
 
+.user-checkbox {
+  --van-checkbox-size: 20px;
+}
+
 .selected {
   background-color: #f0f7ff;
 }
 
 .selected-section {
-  margin: 16px;
-  padding: 12px;
   background-color: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 80px;
 }
 
 .selected-info {
@@ -241,15 +336,34 @@ onMounted(() => {
   align-items: center;
 }
 
-.selected-label {
+.selected-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: #50E3C2;
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   font-size: 14px;
-  color: #666;
-  margin-right: 8px;
+  font-weight: bold;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.selected-details {
+  flex: 1;
+}
+
+.selected-label {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 4px;
 }
 
 .selected-name {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
   color: #333;
 }
 
@@ -261,11 +375,34 @@ onMounted(() => {
   background-color: white;
   padding: 16px;
   box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+  z-index: 10;
 }
 
 .confirm-btn {
   border-radius: 8px;
-  height: 44px;
+  height: 48px;
   font-size: 16px;
+  font-weight: 600;
+}
+
+/* 适配不同屏幕尺寸 */
+@media (max-width: 768px) {
+  .container {
+    padding: 12px;
+    padding-top: 60px;
+  }
+  
+  .user-avatar {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .selected-section {
+    margin-bottom: 70px;
+  }
+  
+  .confirm-btn {
+    height: 44px;
+  }
 }
 </style>

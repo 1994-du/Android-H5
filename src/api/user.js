@@ -37,3 +37,8 @@ export const updateAvatar = (base64Data) => {
 export const setUser = (data) => {
   return post('/api/users/setUser', data)
 }
+
+// 获取用户列表
+export const getUsers = (params) => {
+  return post('/api/users/all', params)
+}
