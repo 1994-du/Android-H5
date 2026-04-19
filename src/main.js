@@ -10,8 +10,6 @@ import 'vant/lib/index.css'
 import './style.less'
 import Vue3Lottie from 'vue3-lottie'
 
-import 'vue3-lottie/dist/style.css'
-
 
 new VConsole()
 window.addEventListener('statusBarReady', () => {

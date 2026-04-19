@@ -1,7 +1,7 @@
 <template>
   <DxxHeader :show-back="true" @click-back="handleBack">发卡</DxxHeader>
   <div class="issue-card dxx_wrap">
-    <div class="content" :class="{ 'blur-content': isAnimating || showSuccess }">
+    <div class="content" :class="{ 'blur-content': showSuccess }">
       <h2 class="page-title">{{ cardName }} - 选择卡片</h2>
 
       <div class="card-carousel">
@@ -59,81 +59,8 @@
       </Button>
     </div>
 
-    <!-- 使用新的双层信封动画组件 -->
-    <SendCardAnimation ref="sendCardAnimationRef">
-      <template #card>
-        <div
-          v-if="selectedCard"
-          class="flying-card"
-          :style="{ '--flying-card-bg': selectedCard.color }"
-        >
-          <div class="flying-card__paper">
-            <div class="flying-card__shine"></div>
-
-            <div class="flying-card__header">
-              <span class="flying-card__badge">CARD</span>
-              <span class="flying-card__emoji">{{ selectedCard.icon }}</span>
-            </div>
-
-            <div class="flying-card__body">
-              <h3 class="flying-card__title">{{ selectedCard.name }}</h3>
-              <p class="flying-card__desc">
-                {{ message || selectedCard.description }}
-              </p>
-            </div>
-
-            <div class="flying-card__footer">
-              <span class="flying-card__recipient">{{ recipient || '待选择接收人' }}</span>
-              <span class="flying-card__stamp">已封存</span>
-            </div>
-          </div>
-        </div>
-      </template>
-    </SendCardAnimation>
-
-    <div class="envelope-overlay" v-if="showSuccess">
-      <div class="success-ambient">
-        <span v-for="item in 10" :key="`success-particle-${item}`" class="success-particle"></span>
-        <span class="success-glow success-glow-left"></span>
-        <span class="success-glow success-glow-right"></span>
-      </div>
-
-      <div class="success-content">
-        <div class="success-status">已送达</div>
-
-        <div class="success-icon">
-          <div class="check-halo"></div>
-          <div class="check-halo check-halo-delayed"></div>
-          <div class="check-circle">
-            <div class="checkmark"></div>
-          </div>
-        </div>
-
-        <h1 class="success-title">发送成功！</h1>
-        <p class="success-message">
-          你的卡片已成功发送给
-          <span class="recipient-highlight">{{ recipient }}</span>
-        </p>
-
-        <div class="card-preview-shell">
-          <div class="preview-shadow"></div>
-          <div
-            class="card-preview"
-            :style="{ background: selectedCard?.color || 'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)' }"
-          >
-            <div class="preview-shine"></div>
-            <div class="preview-icon">{{ selectedCard?.icon || '💌' }}</div>
-            <div class="preview-name">{{ selectedCard?.name || cardName }}</div>
-          </div>
-          <div class="preview-recipient">送达对象 · {{ recipient }}</div>
-        </div>
-
-        <div class="action-buttons">
-          <button class="primary-btn" @click="resetForm">再发一张</button>
-          <button class="secondary-btn" @click="goHome">返回首页</button>
-        </div>
-      </div>
-    </div>
+    <!-- 发送动画组件 -->
+    <SendCardAnimation v-if="showSendAnimation" />
   </div>
 </template>
 
@@ -154,7 +81,6 @@ const cardType = ref(route.query.cardType || '1')
 const cardName = ref(route.query.cardName || '卡片')
 
 const cardRefs = ref([])
-const sendCardAnimationRef = ref(null)
 
 const subCards = ref([])
 const selectedCard = ref(null)
@@ -165,7 +91,7 @@ const message = ref('')
 const selectedCardUser = ref(null)
 const loading = ref(false)
 const showSuccess = ref(false)
-const isAnimating = ref(false)
+const showSendAnimation = ref(false)
 
 const fetchSubCards = async () => {
   await new Promise(resolve => setTimeout(resolve, 300))
@@ -222,50 +148,31 @@ const handleIssueCard = async () => {
     })
     return
   }
-
+  // 按钮loading状态
   loading.value = true
   try {
-    await sendCard({
-      title: selectedCard.value.name,
-      content: message.value || '新活动开始了，快来参加！',
-      userId: selectedCardUser.value?.id,
-      senderId: userStore.id,
-      buttonText: '立即参加',
-      buttonUrl: 'https://example.com/activity'
+    const res = await sendCard({
+      cardId:'1',
+      receiverId: selectedCardUser.value?.id,
+      senderId: userStore.id
     })
-
+    console.log('发送卡片',res);
+    
     sessionStorage.removeItem('selectedCardUser')
 
-    // 使用新的双层信封动画组件
-    if (sendCardAnimationRef.value) {
-      const cardElement = cardRefs.value[currentIndex.value]
-      if (cardElement) {
-        isAnimating.value = true
-
-        const cardRect = cardElement.getBoundingClientRect()
-        const targetScale = 0.58
-
-        const envelopeRect = {
-          left: window.innerWidth / 2 - (cardRect.width * targetScale) / 2,
-          top: window.innerHeight / 2 - cardRect.height * 0.18
-        }
-
-        // 启动动画并等待完全结束
-        await sendCardAnimationRef.value.start({
-          cardRect: cardRect,
-          envelopeRect: envelopeRect,
-          targetScale
-        })
-
-        // 动画完全结束后才显示成功弹框
-        isAnimating.value = false
-        showSuccess.value = true
-      } else {
-        showSuccess.value = true
-      }
-    } else {
-      showSuccess.value = true
-    }
+    // 显示发送动画
+    showSendAnimation.value = true
+    
+    // 动画结束后返回选卡页面
+    setTimeout(() => {
+      showSendAnimation.value = false
+      // 重置表单
+      message.value = ''
+      recipient.value = ''
+      selectedCardUser.value = null
+      selectedCard.value = subCards.value[0] || null
+      currentIndex.value = 0
+    }, 2000) // 假设动画持续2秒
   } catch (error) {
     showToast({
       message: error.message || '卡片发送失败，请重试',
