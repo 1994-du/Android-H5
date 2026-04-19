@@ -8,7 +8,9 @@ import VConsole from 'vconsole'
 import Vant from 'vant'
 import 'vant/lib/index.css'
 import './style.less'
+import Vue3Lottie from 'vue3-lottie'
 
+import 'vue3-lottie/dist/style.css'
 
 
 new VConsole()
@@ -31,5 +33,5 @@ pinia.use(piniaPluginPersistedstate)
 app.use(Vant)
 app.use(pinia)
 app.use(router)
-
+app.use(Vue3Lottie)
 app.mount('#app')

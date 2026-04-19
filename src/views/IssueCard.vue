@@ -1,14 +1,22 @@
 <template>
   <DxxHeader :show-back="true" @click-back="handleBack">发卡</DxxHeader>
   <div class="issue-card dxx_wrap">
-    <div class="content" :class="{ 'blur-content': showEnvelope }">
+    <div class="content" :class="{ 'blur-content': isAnimating || showSuccess }">
       <h2 class="page-title">{{ cardName }} - 选择卡片</h2>
-      
-      <!-- 二级卡片轮播 -->
+
       <div class="card-carousel">
-        <Swipe autoplay="false" indicator-color="#1989fa">
-          <SwipeItem v-for="card in subCards" :key="card.id">
-            <div class="sub-card">
+        <Swipe
+          :autoplay="0"
+          :loop="false"
+          indicator-color="#1989fa"
+          @change="onSwipeChange"
+        >
+          <SwipeItem v-for="(card, index) in subCards" :key="card.id">
+            <div
+              class="sub-card"
+              :ref="el => { if (el) cardRefs[index] = el }"
+              :style="{ background: card.color }"
+            >
               <div class="sub-card-icon">{{ card.icon }}</div>
               <h3 class="sub-card-name">{{ card.name }}</h3>
               <p class="sub-card-desc">{{ card.description }}</p>
@@ -16,8 +24,7 @@
           </SwipeItem>
         </Swipe>
       </div>
-      
-      <!-- 选择接收人 -->
+
       <div class="recipient-section">
         <div class="recipient-menu" @click="openUserSelect">
           <div class="menu-left">
@@ -30,8 +37,7 @@
           已选择：{{ recipient }}
         </div>
       </div>
-      
-      <!-- 留言区域 -->
+
       <div class="message-section">
         <h3 class="section-title">留言</h3>
         <Field
@@ -41,46 +47,90 @@
           placeholder="请输入留言内容"
         />
       </div>
-      
-      <!-- 发卡按钮 -->
-      <Button type="primary" block class="issue-btn" :loading="loading" @click="handleIssueCard">
+
+      <Button
+        type="primary"
+        block
+        class="issue-btn"
+        :loading="loading"
+        @click="handleIssueCard"
+      >
         发送卡片
       </Button>
     </div>
-    
-    <!-- 信封动画 -->
-    <div class="envelope-overlay" v-if="showEnvelope">
-      <div class="envelope-animation">
-        <div class="envelope" ref="envelopeRef">
-          <div class="envelope-front"></div>
-          <div class="envelope-back"></div>
-          <div class="envelope-flap"></div>
-          <div class="envelope-content">
-            <div class="success-content">
-              <!-- 成功图标 -->
-              <div class="success-icon">
-                <div class="check-circle">
-                  <div class="checkmark"></div>
-                </div>
-              </div>
-              
-              <!-- 成功消息 -->
-              <h1 class="success-title">发送成功！</h1>
-              <p class="success-message">你的卡片已成功发送给 {{ recipient }}</p>
-              
-              <!-- 卡片预览 -->
-              <div class="card-preview">
-                <img :src="cardImageUrl" :alt="cardName" class="card-image" />
-                <div class="card-name">{{ cardName }}</div>
-              </div>
-              
-              <!-- 操作按钮 -->
-              <div class="action-buttons">
-                <button class="primary-btn" @click="resetForm">再发一张</button>
-                <button class="secondary-btn" @click="goHome">返回首页</button>
-              </div>
+
+    <!-- 使用新的双层信封动画组件 -->
+    <SendCardAnimation ref="sendCardAnimationRef">
+      <template #card>
+        <div
+          v-if="selectedCard"
+          class="flying-card"
+          :style="{ '--flying-card-bg': selectedCard.color }"
+        >
+          <div class="flying-card__paper">
+            <div class="flying-card__shine"></div>
+
+            <div class="flying-card__header">
+              <span class="flying-card__badge">CARD</span>
+              <span class="flying-card__emoji">{{ selectedCard.icon }}</span>
+            </div>
+
+            <div class="flying-card__body">
+              <h3 class="flying-card__title">{{ selectedCard.name }}</h3>
+              <p class="flying-card__desc">
+                {{ message || selectedCard.description }}
+              </p>
+            </div>
+
+            <div class="flying-card__footer">
+              <span class="flying-card__recipient">{{ recipient || '待选择接收人' }}</span>
+              <span class="flying-card__stamp">已封存</span>
             </div>
           </div>
+        </div>
+      </template>
+    </SendCardAnimation>
+
+    <div class="envelope-overlay" v-if="showSuccess">
+      <div class="success-ambient">
+        <span v-for="item in 10" :key="`success-particle-${item}`" class="success-particle"></span>
+        <span class="success-glow success-glow-left"></span>
+        <span class="success-glow success-glow-right"></span>
+      </div>
+
+      <div class="success-content">
+        <div class="success-status">已送达</div>
+
+        <div class="success-icon">
+          <div class="check-halo"></div>
+          <div class="check-halo check-halo-delayed"></div>
+          <div class="check-circle">
+            <div class="checkmark"></div>
+          </div>
+        </div>
+
+        <h1 class="success-title">发送成功！</h1>
+        <p class="success-message">
+          你的卡片已成功发送给
+          <span class="recipient-highlight">{{ recipient }}</span>
+        </p>
+
+        <div class="card-preview-shell">
+          <div class="preview-shadow"></div>
+          <div
+            class="card-preview"
+            :style="{ background: selectedCard?.color || 'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)' }"
+          >
+            <div class="preview-shine"></div>
+            <div class="preview-icon">{{ selectedCard?.icon || '💌' }}</div>
+            <div class="preview-name">{{ selectedCard?.name || cardName }}</div>
+          </div>
+          <div class="preview-recipient">送达对象 · {{ recipient }}</div>
+        </div>
+
+        <div class="action-buttons">
+          <button class="primary-btn" @click="resetForm">再发一张</button>
+          <button class="secondary-btn" @click="goHome">返回首页</button>
         </div>
       </div>
     </div>
@@ -88,11 +138,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast, Swipe, SwipeItem, Icon, Field, Button } from 'vant'
-import gsap from 'gsap'
 import DxxHeader from '@/components/DxxHeader.vue'
+import SendCardAnimation from '@/components/SendCardAnimation.vue'
 import { sendCard } from '@/api/card'
 import { useUserStore } from '@/stores/user'
 
@@ -100,101 +150,60 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 
-// 卡片类型信息
 const cardType = ref(route.query.cardType || '1')
 const cardName = ref(route.query.cardName || '卡片')
 
-// 卡片图片URL
-const cardImageUrl = computed(() => {
-  return 'https://via.placeholder.com/200x150?text=' + encodeURIComponent(cardName.value)
-})
+const cardRefs = ref([])
+const sendCardAnimationRef = ref(null)
 
-// 二级卡片数据
 const subCards = ref([])
+const selectedCard = ref(null)
+const currentIndex = ref(0)
 
-// 接收人和留言
 const recipient = ref(route.query.recipient || '')
 const message = ref('')
 const selectedCardUser = ref(null)
 const loading = ref(false)
-const showEnvelope = ref(false)
-const envelopeRef = ref(null)
+const showSuccess = ref(false)
+const isAnimating = ref(false)
 
-// 模拟获取二级卡片数据
 const fetchSubCards = async () => {
-  // 模拟接口请求延迟
   await new Promise(resolve => setTimeout(resolve, 300))
-  
-  // 根据一级卡片类型返回不同的二级卡片
+
   const subCardData = {
-    '1': [ // 点赞卡
-      {
-        id: '1-1',
-        name: '优秀表现',
-        description: '表彰突出的工作表现',
-        icon: '🌟'
-      },
-      {
-        id: '1-2',
-        name: '创新思维',
-        description: '鼓励创新的想法和解决方案',
-        icon: '💡'
-      },
-      {
-        id: '1-3',
-        name: '团队合作',
-        description: '赞赏良好的团队协作精神',
-        icon: '🤝'
-      }
+    '1': [
+      { id: '1-1', name: '优秀表现', description: '表彰突出的工作表现', icon: '🌟', color: 'linear-gradient(135deg, #ffd700 0%, #ffed4a 100%)' },
+      { id: '1-2', name: '创新思维', description: '鼓励创新的想法和解决方案', icon: '💡', color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' },
+      { id: '1-3', name: '团队合作', description: '赞赏良好的团队协作精神', icon: '🤝', color: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
     ],
-    '2': [ // 认可卡
-      {
-        id: '2-1',
-        name: '贡献突出',
-        description: '认可对团队的重大贡献',
-        icon: '🏆'
-      },
-      {
-        id: '2-2',
-        name: '专业能力',
-        description: '肯定专业技能和知识水平',
-        icon: '🎯'
-      },
-      {
-        id: '2-3',
-        name: '领导力',
-        description: '认可领导能力和管理水平',
-        icon: '👑'
-      }
+    '2': [
+      { id: '2-1', name: '贡献突出', description: '认可对团队的重大贡献', icon: '🏆', color: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' },
+      { id: '2-2', name: '专业能力', description: '肯定专业技能和知识水平', icon: '🎯', color: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+      { id: '2-3', name: '领导力', description: '认可领导能力和管理水平', icon: '👑', color: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' }
     ],
-    '3': [ // 吐槽卡
-      {
-        id: '3-1',
-        name: '流程优化',
-        description: '提出流程改进的建议',
-        icon: '🔄'
-      },
-      {
-        id: '3-2',
-        name: '问题反馈',
-        description: '反馈工作中遇到的问题',
-        icon: '⚠️'
-      },
-      {
-        id: '3-3',
-        name: '改进建议',
-        description: '提供改进产品或服务的建议',
-        icon: '📝'
-      }
+    '3': [
+      { id: '3-1', name: '流程优化', description: '提出流程改进的建议', icon: '🔄', color: 'linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)' },
+      { id: '3-2', name: '问题反馈', description: '反馈工作中遇到的问题', icon: '⚠️', color: 'linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%)' },
+      { id: '3-3', name: '改进建议', description: '提供改进产品或服务的建议', icon: '📝', color: 'linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%)' }
     ]
   }
-  
+
   subCards.value = subCardData[cardType.value] || []
+
+  if (subCards.value.length > 0) {
+    selectedCard.value = subCards.value[0]
+    currentIndex.value = 0
+  }
 }
 
-// 打开选择接收人页面
+const onSwipeChange = (index) => {
+  if (subCards.value[index]) {
+    selectedCard.value = subCards.value[index]
+    currentIndex.value = index
+  }
+}
+
 const openUserSelect = () => {
-  // 跳转到选人页面
   router.push({
     path: '/user-select',
     query: {
@@ -205,7 +214,6 @@ const openUserSelect = () => {
   })
 }
 
-// 处理发卡
 const handleIssueCard = async () => {
   if (!recipient.value) {
     showToast({
@@ -214,31 +222,50 @@ const handleIssueCard = async () => {
     })
     return
   }
-  
+
   loading.value = true
   try {
     await sendCard({
-      title: cardName.value,
+      title: selectedCard.value.name,
       content: message.value || '新活动开始了，快来参加！',
       userId: selectedCardUser.value?.id,
       senderId: userStore.id,
       buttonText: '立即参加',
       buttonUrl: 'https://example.com/activity'
     })
-    
-    showToast({
-      message: `卡片发送成功！接收人：${recipient.value}`,
-      type: 'success'
-    })
-    
-    // 清除 sessionStorage 中的用户信息
+
     sessionStorage.removeItem('selectedCardUser')
-    
-    // 显示信封动画
-    showEnvelope.value = true
-    setTimeout(() => {
-      initEnvelopeAnimation()
-    }, 100)
+
+    // 使用新的双层信封动画组件
+    if (sendCardAnimationRef.value) {
+      const cardElement = cardRefs.value[currentIndex.value]
+      if (cardElement) {
+        isAnimating.value = true
+
+        const cardRect = cardElement.getBoundingClientRect()
+        const targetScale = 0.58
+
+        const envelopeRect = {
+          left: window.innerWidth / 2 - (cardRect.width * targetScale) / 2,
+          top: window.innerHeight / 2 - cardRect.height * 0.18
+        }
+
+        // 启动动画并等待完全结束
+        await sendCardAnimationRef.value.start({
+          cardRect: cardRect,
+          envelopeRect: envelopeRect,
+          targetScale
+        })
+
+        // 动画完全结束后才显示成功弹框
+        isAnimating.value = false
+        showSuccess.value = true
+      } else {
+        showSuccess.value = true
+      }
+    } else {
+      showSuccess.value = true
+    }
   } catch (error) {
     showToast({
       message: error.message || '卡片发送失败，请重试',
@@ -249,129 +276,27 @@ const handleIssueCard = async () => {
   }
 }
 
-// 初始化信封动画
-const initEnvelopeAnimation = () => {
-  const envelope = envelopeRef.value
-  if (!envelope) return
-  
-  const envelopeFlap = envelope.querySelector('.envelope-flap')
-  const envelopeContent = envelope.querySelector('.envelope-content')
-  
-  if (!envelopeFlap || !envelopeContent) return
-  
-  // 创建 GSAP 时间线
-  const tl = gsap.timeline({
-    defaults: {
-      duration: 1,
-      ease: 'power3.out'
-    }
-  })
-  
-  // 初始状态
-  gsap.set(envelope, {
-    scale: 0.8,
-    opacity: 0,
-    rotationY: 0
-  })
-  
-  gsap.set(envelopeFlap, {
-    rotationX: 0,
-    transformOrigin: 'top center'
-  })
-  
-  gsap.set(envelopeContent, {
-    y: 50,
-    scale: 0.8,
-    opacity: 0
-  })
-  
-  // 动画序列
-  tl
-    // 信封出现
-    .to(envelope, {
-      scale: 1,
-      opacity: 1,
-      duration: 0.8
-    })
-    // 信封轻微旋转
-    .to(envelope, {
-      rotationY: 5,
-      duration: 0.5
-    })
-    // 信封盖子打开
-    .to(envelopeFlap, {
-      rotationX: 180,
-      duration: 1
-    }, '+=0.5')
-    // 内容滑出
-    .to(envelopeContent, {
-      y: 0,
-      scale: 1,
-      opacity: 1,
-      duration: 0.8
-    }, '-=0.5')
-    // 内容元素依次出现
-    .from('.success-icon', {
-      scale: 0,
-      opacity: 0,
-      duration: 0.5
-    }, '+=0.3')
-    .from('.success-title', {
-      y: 20,
-      opacity: 0,
-      duration: 0.5
-    }, '+=0.2')
-    .from('.success-message', {
-      y: 20,
-      opacity: 0,
-      duration: 0.5
-    }, '+=0.2')
-    .from('.card-preview', {
-      y: 20,
-      opacity: 0,
-      duration: 0.5
-    }, '+=0.2')
-    .from('.action-buttons', {
-      y: 20,
-      opacity: 0,
-      duration: 0.5
-    }, '+=0.2')
-    // 信封盖子关闭
-    .to(envelopeFlap, {
-      rotationX: 0,
-      duration: 1
-    }, '+=1')
-    // 最终状态
-    .to(envelope, {
-      rotationY: 0,
-      duration: 0.5
-    })
-}
-
-// 重置表单，再发一张
 const resetForm = () => {
-  showEnvelope.value = false
+  showSuccess.value = false
   message.value = ''
   recipient.value = ''
   selectedCardUser.value = null
+  selectedCard.value = subCards.value[0] || null
+  currentIndex.value = 0
 }
 
-// 返回首页
 const goHome = () => {
-  showEnvelope.value = false
+  showSuccess.value = false
   router.push('/public-chat')
 }
 
-// 处理返回
 const handleBack = () => {
   router.back()
 }
 
-// 页面加载时获取二级卡片数据
 onMounted(() => {
   fetchSubCards()
-  
-  // 从 sessionStorage 中读取用户信息
+
   const savedUser = sessionStorage.getItem('selectedCardUser')
   if (savedUser) {
     selectedCardUser.value = JSON.parse(savedUser)
@@ -408,6 +333,7 @@ onMounted(() => {
 
 .card-carousel {
   margin-bottom: 24px;
+  position: relative;
 }
 
 .sub-card {
@@ -416,10 +342,18 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background-color: white;
   border-radius: 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   height: 200px;
+  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.sub-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.sub-card:hover .sub-card-desc {
+  color: rgba(0, 0, 0, 0.8);
 }
 
 .sub-card-icon {
@@ -436,9 +370,14 @@ onMounted(() => {
 
 .sub-card-desc {
   font-size: 14px;
-  color: #909399;
+  color: #333;
   margin: 0;
   text-align: center;
+  transition: color 0.3s ease;
+}
+
+.sub-card:hover .sub-card-desc {
+  color: #000;
 }
 
 .section-title {
@@ -506,6 +445,122 @@ onMounted(() => {
   border-radius: 12px;
   height: 48px;
   font-size: 16px;
+  transition: all 0.3s;
+}
+
+.flying-card {
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.flying-card__paper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: #142033;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.05) 38%, rgba(0, 0, 0, 0.08) 100%),
+    var(--flying-card-bg);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow:
+    0 18px 34px rgba(11, 21, 38, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.flying-card__paper::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  pointer-events: none;
+}
+
+.flying-card__shine {
+  position: absolute;
+  inset: -20% -60%;
+  background: linear-gradient(110deg, transparent 32%, rgba(255, 255, 255, 0.2) 44%, rgba(255, 255, 255, 0.58) 50%, rgba(255, 255, 255, 0.12) 56%, transparent 68%);
+  transform: rotate(8deg);
+  opacity: 0.82;
+}
+
+.flying-card__header,
+.flying-card__body,
+.flying-card__footer {
+  position: relative;
+  z-index: 1;
+}
+
+.flying-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flying-card__badge,
+.flying-card__stamp {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 4px 10px rgba(17, 24, 39, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.flying-card__emoji {
+  font-size: 34px;
+  filter: drop-shadow(0 8px 12px rgba(17, 24, 39, 0.15));
+}
+
+.flying-card__body {
+  margin: 10px 0;
+}
+
+.flying-card__title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.flying-card__desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(20, 32, 51, 0.8);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.flying-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.flying-card__recipient {
+  max-width: 70%;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(20, 32, 51, 0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .envelope-overlay {
@@ -514,119 +569,257 @@ onMounted(() => {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background:
+    radial-gradient(circle at top, rgba(87, 167, 255, 0.22), transparent 34%),
+    radial-gradient(circle at 80% 80%, rgba(82, 196, 26, 0.16), transparent 26%),
+    rgba(8, 18, 38, 0.58);
+  backdrop-filter: blur(18px) saturate(130%);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 9999;
   padding: 20px;
-  perspective: 1000px;
+  overflow: hidden;
+  animation: overlayFadeIn 0.35s ease both;
 }
 
-.envelope-animation {
-  position: relative;
-  width: 100%;
-  max-width: 450px;
-  height: 500px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+@keyframes overlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
-.envelope {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-}
-
-.envelope-front,
-.envelope-back,
-.envelope-flap {
+.success-ambient {
   position: absolute;
-  width: 100%;
-  height: 100%;
-  background-color: #4A90E2;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  inset: 0;
+  pointer-events: none;
 }
 
-.envelope-front {
-  z-index: 3;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+.success-particle {
+  --tx: 0px;
+  --ty: 0px;
+  --size: 10px;
+  --delay: 0s;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 999px;
+  opacity: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(255, 214, 102, 0.7) 48%, rgba(255, 214, 102, 0) 72%);
+  box-shadow: 0 0 16px rgba(255, 214, 102, 0.55);
+  animation: particleBurst 1.35s cubic-bezier(0.22, 1, 0.36, 1) var(--delay) forwards;
 }
 
-.envelope-back {
-  z-index: 1;
-  transform: translateZ(-10px);
+.success-particle:nth-child(1) { --tx: -150px; --ty: -110px; --size: 12px; --delay: 0.08s; }
+.success-particle:nth-child(2) { --tx: -90px; --ty: -136px; --size: 8px; --delay: 0.12s; }
+.success-particle:nth-child(3) { --tx: 22px; --ty: -152px; --size: 9px; --delay: 0.18s; }
+.success-particle:nth-child(4) { --tx: 126px; --ty: -112px; --size: 12px; --delay: 0.1s; }
+.success-particle:nth-child(5) { --tx: 162px; --ty: -22px; --size: 7px; --delay: 0.22s; }
+.success-particle:nth-child(6) { --tx: 138px; --ty: 94px; --size: 10px; --delay: 0.16s; }
+.success-particle:nth-child(7) { --tx: 38px; --ty: 146px; --size: 11px; --delay: 0.28s; }
+.success-particle:nth-child(8) { --tx: -74px; --ty: 132px; --size: 8px; --delay: 0.2s; }
+.success-particle:nth-child(9) { --tx: -154px; --ty: 58px; --size: 9px; --delay: 0.24s; }
+.success-particle:nth-child(10) { --tx: -126px; --ty: -10px; --size: 6px; --delay: 0.14s; }
+
+@keyframes particleBurst {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2);
+  }
+  22% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1);
+  }
 }
 
-.envelope-flap {
-  z-index: 4;
-  clip-path: polygon(0 0, 100% 0, 50% 50%, 0 0);
-  transform-origin: top center;
+.success-glow {
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0;
+  animation: glowDrift 1.2s ease forwards;
 }
 
-.envelope-content {
-  position: relative;
-  z-index: 2;
-  width: 90%;
-  height: 80%;
-  margin: 5% auto;
-  background-color: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform-origin: center;
+.success-glow-left {
+  top: 8%;
+  left: 8%;
+  background: rgba(96, 165, 250, 0.28);
+}
+
+.success-glow-right {
+  right: 4%;
+  bottom: 16%;
+  background: rgba(82, 196, 26, 0.22);
+  animation-delay: 0.14s;
+}
+
+@keyframes glowDrift {
+  0% {
+    opacity: 0;
+    transform: scale(0.7) translateY(24px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
 
 .success-content {
-  background-color: white;
-  border-radius: 12px;
-  padding: 30px 20px;
+  position: relative;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 250, 255, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 28px;
+  padding: 28px 24px 24px;
   text-align: center;
   width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  max-width: 356px;
+  overflow: hidden;
+  box-shadow:
+    0 26px 64px rgba(8, 18, 38, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  transform-origin: center bottom;
+  animation: successPop 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.success-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.36) 0%, transparent 38%, rgba(89, 165, 255, 0.08) 100%);
+  pointer-events: none;
+}
+
+.success-content::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  left: -45%;
+  width: 40%;
+  height: 180%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0));
+  transform: rotate(18deg);
+  opacity: 0;
+  animation: panelSweep 1.3s ease 0.24s forwards;
+}
+
+@keyframes successPop {
+  0% {
+    transform: translateY(42px) scale(0.84) rotateX(-18deg);
+    opacity: 0;
+  }
+  72% {
+    transform: translateY(-5px) scale(1.02) rotateX(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1) rotateX(0deg);
+    opacity: 1;
+  }
+}
+
+.success-status {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-width: 82px;
+  padding: 7px 14px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: linear-gradient(135deg, rgba(220, 252, 231, 0.96), rgba(187, 247, 208, 0.92));
+  box-shadow:
+    0 8px 18px rgba(22, 101, 52, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  animation: riseFade 0.5s ease 0.12s both;
 }
 
 .success-icon {
-  margin-bottom: 20px;
+  position: relative;
+  z-index: 1;
+  width: 110px;
+  height: 110px;
+  margin: 0 auto 18px;
 }
 
 .check-circle {
-  width: 80px;
-  height: 80px;
+  width: 88px;
+  height: 88px;
   border-radius: 50%;
-  background-color: #50E3C2;
+  background: radial-gradient(circle at 32% 28%, #8bf06b 0%, #52c41a 48%, #2c8f0d 100%);
   display: flex;
   justify-content: center;
   align-items: center;
   margin: 0 auto;
-  animation: pulse 1s ease-in-out;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 18px 34px rgba(56, 158, 13, 0.34),
+    inset 0 3px 6px rgba(255, 255, 255, 0.38);
+  animation: checkPulse 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s both;
 }
 
-@keyframes pulse {
+.check-halo {
+  position: absolute;
+  inset: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(82, 196, 26, 0.24);
+  animation: haloRipple 1.5s ease-out 0.08s both;
+}
+
+.check-halo-delayed {
+  animation-delay: 0.32s;
+}
+
+@keyframes checkPulse {
   0% {
-    transform: scale(0);
+    transform: scale(0.32) translateY(12px);
   }
-  50% {
-    transform: scale(1.2);
+  58% {
+    transform: scale(1.15);
   }
   100% {
     transform: scale(1);
   }
 }
 
+@keyframes haloRipple {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+  22% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+}
+
 .checkmark {
-  width: 40px;
+  width: 38px;
   height: 20px;
-  border-left: 4px solid white;
-  border-bottom: 4px solid white;
-  transform: rotate(-45deg);
-  animation: drawCheck 0.5s ease-in-out 0.5s forwards;
+  border-left: 5px solid white;
+  border-bottom: 5px solid white;
+  transform: rotate(-45deg) scale(0);
+  transform-origin: center;
+  animation: drawCheck 0.45s ease-out 0.34s forwards;
   opacity: 0;
 }
 
@@ -642,76 +835,257 @@ onMounted(() => {
 }
 
 .success-title {
+  position: relative;
+  z-index: 1;
   font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 12px;
+  font-weight: 700;
+  color: #1b2230;
+  margin-bottom: 10px;
+  letter-spacing: 0.02em;
+  animation: riseFade 0.5s ease 0.18s both;
 }
 
 .success-message {
-  font-size: 16px;
-  color: #666;
+  position: relative;
+  z-index: 1;
+  font-size: 15px;
+  color: #5d6678;
   margin-bottom: 20px;
+  line-height: 1.5;
+  animation: riseFade 0.5s ease 0.26s both;
+}
+
+.recipient-highlight {
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.card-preview-shell {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 24px;
+  animation: cardLift 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.22s both;
+}
+
+.preview-shadow {
+  position: absolute;
+  left: 13%;
+  right: 13%;
+  bottom: -16px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(17, 24, 39, 0.24) 0%, transparent 72%);
+  filter: blur(8px);
+  opacity: 0;
+  animation: shadowSettle 0.75s ease 0.3s forwards;
+}
+
+@keyframes shadowSettle {
+  from {
+    opacity: 0;
+    transform: scaleX(0.56);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(0.9);
+  }
 }
 
 .card-preview {
-  background-color: #f9f9f9;
+  position: relative;
+  overflow: hidden;
   border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 20px;
+  padding: 22px 20px;
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    0 18px 38px rgba(18, 38, 63, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  transform-style: preserve-3d;
 }
 
-.card-image {
-  width: 120px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 8px;
-  margin-bottom: 8px;
+.card-preview::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(0, 0, 0, 0.08) 100%);
 }
 
-.card-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
+.preview-shine {
+  position: absolute;
+  inset: -20% -60%;
+  background: linear-gradient(105deg, transparent 24%, rgba(255, 255, 255, 0.22) 38%, rgba(255, 255, 255, 0.58) 48%, rgba(255, 255, 255, 0.12) 60%, transparent 72%);
+  transform: translateX(-72%) rotate(10deg);
+  animation: shineSweep 1.5s ease 0.54s forwards;
+}
+
+@keyframes shineSweep {
+  0% {
+    transform: translateX(-72%) rotate(10deg);
+    opacity: 0;
+  }
+  28% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(72%) rotate(10deg);
+    opacity: 0;
+  }
+}
+
+.preview-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 44px;
+  margin-bottom: 10px;
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.14));
+  animation: iconFloat 2.4s ease-in-out 0.9s infinite;
+}
+
+@keyframes iconFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.preview-name {
+  position: relative;
+  z-index: 1;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1b2230;
+}
+
+.preview-recipient {
+  position: relative;
+  z-index: 1;
+  margin-top: 14px;
+  font-size: 13px;
+  color: #5d6678;
+  letter-spacing: 0.02em;
+  animation: riseFade 0.5s ease 0.34s both;
+}
+
+@keyframes cardLift {
+  0% {
+    opacity: 0;
+    transform: translateY(34px) scale(0.78) rotateX(-22deg) rotateZ(-6deg);
+  }
+  65% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.02) rotateX(0deg) rotateZ(1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateX(0deg) rotateZ(0deg);
+  }
+}
+
+@keyframes riseFade {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes panelSweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-120%) rotate(18deg);
+  }
+  30% {
+    opacity: 0.58;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(250%) rotate(18deg);
+  }
 }
 
 .action-buttons {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  width: 100%;
-  max-width: 300px;
+  animation: riseFade 0.5s ease 0.42s both;
 }
 
 .primary-btn {
   padding: 14px;
-  background-color: #4A90E2;
+  background: linear-gradient(135deg, #1989fa 0%, #1976d2 100%);
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.3s ease;
-}
+  transition: all 0.3s;
 
-.primary-btn:hover {
-  background-color: #357ABD;
+  &:hover {
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(25, 137, 250, 0.4);
+  }
 }
 
 .secondary-btn {
   padding: 14px;
   background-color: white;
-  color: #4A90E2;
-  border: 1px solid #4A90E2;
-  border-radius: 8px;
+  color: #666;
+  border: 1px solid #dcdee0;
+  border-radius: 10px;
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s;
+
+  &:hover {
+    background-color: #f5f5f5;
+    border-color: #c0c4cc;
+  }
 }
 
-.secondary-btn:hover {
-  background-color: #f0f7ff;
+@media (max-width: 375px) {
+  .success-content {
+    padding: 24px 18px 20px;
+  }
+
+  .success-title {
+    font-size: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .envelope-overlay,
+  .success-content,
+  .success-content::after,
+  .success-status,
+  .success-title,
+  .success-message,
+  .card-preview-shell,
+  .preview-shadow,
+  .preview-shine,
+  .preview-icon,
+  .preview-recipient,
+  .action-buttons,
+  .check-circle,
+  .checkmark,
+  .check-halo,
+  .success-glow,
+  .success-particle {
+    animation: none !important;
+  }
 }
 </style>
