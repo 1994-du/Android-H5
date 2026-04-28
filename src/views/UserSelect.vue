@@ -221,25 +221,8 @@ const handleCheckboxChange = (value, user) => {
 // 确认选择
 const confirmSelection = () => {
   if (selectedUser.value) {
-    if (from.value === 'issue-card') {
-      // 跳回发卡页面，并保存完整的用户信息到 sessionStorage
-      sessionStorage.setItem('selectedCardUser', JSON.stringify(selectedUser.value));
-      router.push({
-        path: '/issue-card',
-        query: {
-          cardType: route.query.cardType || '',
-          cardName: route.query.cardName || '',
-          recipient: selectedUser.value.username
-        }
-      });
-    } else if (from.value === 'send-card') {
-      // 跳回发送卡片页面
-      sessionStorage.setItem('selectedFriend', JSON.stringify(selectedUser.value));
-      router.push('/send-card/confirm');
-    } else {
-      // 其他来源，返回上一页
-      router.back();
-    }
+    // 返回上一页
+    router.back();
   }
 };
 

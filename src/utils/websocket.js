@@ -87,34 +87,6 @@ class WebSocketService {
         this.addChatMessage(data.payload)
         this.emit('chat', data.payload)
         break
-      case 'card':
-        console.log('收到卡片消息:', data)
-        console.log('卡片消息参数:', data.payload)
-        
-        // 添加卡片消息到历史记录
-        this.addCardMessage(data.payload)
-        
-        // 检查是否是给当前用户发送的
-        const userStore = useUserStore()
-        const currentUserId = userStore.id
-        const messageUserId = data.payload.userId
-        
-        // 将两者都转换为数字进行比较
-        const currentUserIdNum = Number(currentUserId)
-        const messageUserIdNum = Number(messageUserId)
-        
-        console.log('当前用户ID:', currentUserId, '(数字:', currentUserIdNum, ') 消息目标用户ID:', messageUserId, '(数字:', messageUserIdNum, ')')
-        
-        if (currentUserIdNum && messageUserIdNum === currentUserIdNum) {
-          console.log('收到卡片消息')
-          showToast({
-            message: '收到新卡片！',
-            type: 'success'
-          })
-        }
-        
-        this.emit('card', data.payload)
-        break
       case 'chatHistory':
         console.log('收到聊天历史消息:', data)
         console.log('聊天历史消息参数:', data.payload)
@@ -124,8 +96,6 @@ class WebSocketService {
           data.payload.forEach(msg => {
             if (msg.type === 'chat') {
               this.addChatMessage(msg)
-            } else if (msg.type === 'card') {
-              this.addCardMessage(msg)
             }
           })
         }
@@ -169,33 +139,6 @@ class WebSocketService {
     }
     
     console.log('添加聊天消息:', messageData)
-    this.messages.push(messageData)
-  }
-  
-  addCardMessage(payload) {
-    const now = new Date()
-    const hours = now.getHours().toString().padStart(2, '0')
-    const minutes = now.getMinutes().toString().padStart(2, '0')
-    const time = `${hours}:${minutes}`
-    const rawTime = now.toISOString()
-    
-    const avatar = payload.avatar || payload.fromAvatar || ''
-    const avatarUrl = this.getAvatarUrl(avatar)
-    
-    const messageData = {
-      id: payload.id || Date.now(),
-      type: 'card',
-      fromUsername: payload.fromUsername || payload.username,
-      userId: Number(payload.userId),
-      message: `收到一张卡片: ${payload.title || '卡片'}`,
-      content: payload.content || '',
-      title: payload.title || '卡片',
-      avatar: avatarUrl,
-      time: time,
-      rawTime: rawTime
-    }
-    
-    console.log('添加卡片消息到历史记录:', messageData)
     this.messages.push(messageData)
   }
 
