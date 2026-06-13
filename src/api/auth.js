@@ -8,7 +8,7 @@ import { post } from './index'
  * @returns {Promise} - 返回登录结果
  */
 export const login = (data) => {
-  return post('/api/auth/login', data)
+  return post('/api/auth/app/login', data)
 }
 
 /**

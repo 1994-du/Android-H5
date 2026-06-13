@@ -4,6 +4,9 @@
       公共聊天
       <van-badge v-if="unreadCount > 0" :content="unreadCount" class="message-badge" />
     </van-tabbar-item>
+    <van-tabbar-item icon="records" to="/nine-ball">
+      台球
+    </van-tabbar-item>
     <van-tabbar-item icon="user-o" to="/about">
       我的
     </van-tabbar-item>
@@ -24,14 +27,22 @@ const updateActiveTab = () => {
   const path = route.path
   if (path === '/public-chat') {
     active.value = 0
-  } else if (path === '/about') {
+  } else if (path === '/nine-ball') {
     active.value = 1
+  } else if (path === '/about') {
+    active.value = 2
   }
 }
 
+let removeAfterEachHook = null
+
 onMounted(() => {
   updateActiveTab()
-  router.afterEach(updateActiveTab)
+  removeAfterEachHook = router.afterEach(updateActiveTab)
+})
+
+onUnmounted(() => {
+  removeAfterEachHook?.()
 })
 </script>
 

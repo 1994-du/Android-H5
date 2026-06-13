@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import wsService from '@/utils/websocket'
+import { removeToken, setToken } from '@/utils/token'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -29,6 +30,10 @@ export const useUserStore = defineStore('user', {
         this.gender = info.data.gender ?? null
         this.roleId = info.data.roleId ? Number(info.data.roleId) : null
         this.roleName = info.data.roleName || ''
+
+        if (this.token) {
+          setToken(this.token)
+        }
         
         if (info.data.menus) {
           this.menus = info.data.menus
@@ -47,6 +52,7 @@ export const useUserStore = defineStore('user', {
       this.gender = null
       this.roleId = null
       this.roleName = ''
+      removeToken()
     }
   },
   persist: {

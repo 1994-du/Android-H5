@@ -1,5 +1,5 @@
 <template>
-  <DxxHeader :show-back="true">九球计分</DxxHeader>
+  <DxxHeader :show-back="false">九球计分</DxxHeader>
   <div class="nine-ball dxx_wrap">
     <div class="content">
       <div class="players-section">
@@ -129,6 +129,7 @@
         </div>
       </div>
     </div>
+    <DxxTabbar />
   </div>
 </template>
 
@@ -136,6 +137,7 @@
 import { ref } from 'vue'
 import { showToast, showConfirmDialog } from 'vant'
 import DxxHeader from '@/components/DxxHeader.vue'
+import DxxTabbar from '@/components/DxxTabbar.vue'
 
 const currentPlayerIndex = ref(0)
 const scoreOptions = [1, 4, 7, 10]
@@ -392,7 +394,7 @@ const resetAll = async () => {
 .content {
   padding: 15px;
   padding-top: calc(46px + var(--status-bar-height) + 15px);
-  padding-bottom: 20px;
+  padding-bottom: 70px;
 }
 
 .section-header {

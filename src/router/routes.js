@@ -48,6 +48,15 @@ export default [
     }
   },
   {
+    path: '/jump-game',
+    name: 'JumpGame',
+    component: () => import('@/views/JumpGame.vue'),
+    meta: {
+      title: '跳一跳',
+      requiresAuth: true
+    }
+  },
+  {
     path: '/user-select',
     name: 'UserSelect',
     component: () => import('@/views/UserSelect.vue'),

@@ -23,14 +23,28 @@
           is-link
           to="/profile/edit"
         />
-        <van-cell 
-          title="九球计分" 
-          icon="todo-list-o"
+        <van-cell
+          title="跳一跳"
+          icon="fire-o"
           is-link
-          to="/nine-ball"
+          to="/jump-game"
         />
       </van-cell-group>
-      
+      <div style="display: flex;" v-for="item in demolist" :key="item.id">
+        <img src="/img/qp_01.png" alt="" style="width:40px;height: 40px;flex-shrink: 0;margin-right: 12px;">
+        <van-text-ellipsis
+          rows="3"
+          :content="item.description"
+        >
+          <template #action="{ expanded }">
+            <div :style="{'display': expanded ? 'block' : 'inline'}">
+              <span style="margin-right: 5px;">{{ expanded ? '收起' : '展开' }}</span>
+              <van-icon name="arrow-down" v-if="!expanded"/>
+              <van-icon name="arrow-up" v-else/>
+            </div>
+          </template>
+        </van-text-ellipsis>
+      </div>
       <van-button 
         type="danger" 
         class="logout-btn"
@@ -45,7 +59,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { ref,computed,onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import DxxHeader from '@/components/DxxHeader.vue'
@@ -89,6 +103,28 @@ const handleLogout = async () => {
     // 用户取消
   }
 }
+let demolist = ref([])
+onMounted(() => {
+  setTimeout(() => {
+    demolist.value = [
+    {
+      id: 1,
+      title: '示例数据1',
+      description: '这是一些示例数据，用于展示列表项的样式和布局'
+    },
+    {
+      id: 1,
+      title: '示例数据1',
+      description: '这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局'
+    },
+    {
+      id: 1,
+      title: '示例数据1',
+      description: '这是一些示例数据，用于展示列表项的样式和布局'
+    }
+  ]
+  }, 1000)
+})
 </script>
 
 <style scoped lang="less">
