@@ -19,10 +19,10 @@ jobs:
           node-version: 20
 
       - name: 安装依赖
-        run: yarn install --frozen-lockfile
+        run: npm install --legacy-peer-deps
 
       - name: 打包项目
-        run: yarn build-prod
+        run: npm run build
 
       - name: 上传到服务器
         uses: appleboy/scp-action@master
