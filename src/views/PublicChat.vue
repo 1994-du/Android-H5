@@ -162,7 +162,7 @@ const setKeyboardHeight = (visible, height) => {
 }
 
 const initWebSocket = () => {
-  // WebSocket连接已经在登录时建立，这里只需要确保连接正常
+  // 进入聊天页时建立 WebSocket 连接
   if (userStore.token && userStore.id && !wsService.isConnected) {
     console.log('WebSocket未连接，尝试重新连接')
     const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
@@ -311,14 +311,6 @@ const handleChatHistory = (messages) => {
   // 这里可以添加额外的处理逻辑
   scrollToBottom()
 }
-
-watch(() => userStore.token, (newToken, oldToken) => {
-  if (newToken && !oldToken) {
-    nextTick(() => {
-      initWebSocket()
-    })
-  }
-})
 
 onMounted(() => {
   scrollToBottom()
