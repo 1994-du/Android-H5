@@ -1,5 +1,5 @@
 <template>
-  <div class="public-chat dxx_wrap">
+  <div class="public-chat dxx_wrap" :style="chatViewportStyle">
     <Transition name="notify-fade">
       <div 
         v-if="notifyMessage.show" 
@@ -12,7 +12,7 @@
         {{ notifyMessage.text }}
       </div>
     </Transition>
-    <div class="chat-container" :style="{ paddingBottom: keyboardHeight > 0 ? (keyboardHeight + 60) + 'px' : '64px' }">
+    <div class="chat-container" :style="chatContainerStyle">
       <div class="message-list" ref="messageList">
         <div 
           v-for="(msg, index) in messages" 
@@ -36,7 +36,7 @@
         <div ref="bottomAnchor"></div>
       </div>
       
-      <div class="input-area" :style="{ bottom: keyboardHeight > 0 ? keyboardHeight + 'px' : '50px' }">
+      <div class="input-area" :style="inputAreaStyle">
         <van-field
           ref="inputRef"
           v-model="inputMessage"
@@ -107,6 +107,7 @@ const showOnlineUsers = ref(false)
 const onlineUsers = ref([])
 const keyboardHeight = ref(0)
 const inputRef = ref(null)
+const CHAT_INPUT_OFFSET = 64
 
 const notifyMessage = ref({
   show: false,
@@ -186,6 +187,27 @@ const messages = computed(() => {
     })
 })
 
+const chatViewportStyle = computed(() => {
+  if (keyboardHeight.value <= 0) {
+    return {}
+  }
+
+  return {
+    height: `calc(100vh - var(--app-header-height) - ${keyboardHeight.value}px)`,
+    marginBottom: '0px'
+  }
+})
+
+const chatContainerStyle = computed(() => ({
+  paddingBottom: `${CHAT_INPUT_OFFSET}px`
+}))
+
+const inputAreaStyle = computed(() => ({
+  bottom: keyboardHeight.value > 0
+    ? `${keyboardHeight.value}px`
+    : 'var(--app-tabbar-height)'
+}))
+
 const scrollToBottom = () => {
   nextTick(() => {
     if (bottomAnchor.value) {
@@ -200,6 +222,12 @@ watch(() => wsService.messages.length, (newLen, oldLen) => {
   if (newLen > oldLen) {
     scrollToBottom()
   }
+})
+
+watch(keyboardHeight, () => {
+  nextTick(() => {
+    scrollToBottom()
+  })
 })
 
 const sendMessage = () => {
@@ -342,6 +370,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background-color: #f7f8fa;
+  overflow: hidden;
 }
 
 .chat-container {
@@ -349,6 +378,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
 }
 
 .message-list {
@@ -356,6 +386,7 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: 15px;
   padding-bottom: 20px;
+  min-height: 0;
 }
 
 .message-item {
