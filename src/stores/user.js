@@ -22,17 +22,19 @@ export const useUserStore = defineStore('user', {
     setUserInfo(info) {
       console.log('设置用户信息:', info)
       if (info && info.data) {
+        const token = info.data.token || info.token || info.data.accessToken || info.accessToken || ''
+        const expire = info.data.expire || info.data.expiresAt || info.expire || info.expiresAt || null
         const id = info.data.id || info.data.userId
         this.id = id ? Number(id) : null
         this.avatar = info.data.avatar || ''
-        this.token = info.data.token || ''
+        this.token = token
         this.username = info.data.username || ''
         this.gender = info.data.gender ?? null
         this.roleId = info.data.roleId ? Number(info.data.roleId) : null
         this.roleName = info.data.roleName || ''
 
         if (this.token) {
-          setToken(this.token)
+          setToken(this.token, expire)
         }
         
         if (info.data.menus) {

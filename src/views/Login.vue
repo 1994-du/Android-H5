@@ -154,6 +154,22 @@ const validateForm = () => {
   return true
 }
 
+const extractToken = (res) => {
+  return res?.data?.token
+    || res?.token
+    || res?.data?.accessToken
+    || res?.accessToken
+    || ''
+}
+
+const extractExpire = (res) => {
+  return res?.data?.expire
+    || res?.data?.expiresAt
+    || res?.expire
+    || res?.expiresAt
+    || null
+}
+
 const handleSubmit = async () => {
   if (!validateForm()) return
 
@@ -170,8 +186,10 @@ const handleSubmit = async () => {
     console.log(isLogin.value ? '登录成功:' : '注册成功:', res)
 
     if (res.code === 200) {
+      const token = extractToken(res)
+      const expire = extractExpire(res)
       userStore.setUserInfo(res)
-      setToken(res?.data?.token)
+      setToken(token, expire)
       
       if (isLogin.value && rememberMe.value) {
         localStorage.setItem('username', username.value)
@@ -183,8 +201,10 @@ const handleSubmit = async () => {
         type: 'success',
         message: isLogin.value ? '登录成功' : '注册成功'
       })
-
-      router.push('/public-chat')
+      setTimeout(() => {
+        router.push('/public-chat')
+      }, 2000)
+      // await router.replace('/public-chat')
     } else {
       errorMessage.value = res.msg || res.message || (isLogin.value ? '登录失败' : '注册失败')
     }
