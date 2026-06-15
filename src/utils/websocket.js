@@ -10,6 +10,7 @@ class WebSocketService {
     this.userInfo = null
     this.messages = reactive([])
     this.shouldReconnect = false
+    this.messageSeq = 0
   }
 
   formatTime(timeValue) {
@@ -35,8 +36,22 @@ class WebSocketService {
       ? payload.payload
       : payload
 
-    if (!source || typeof source !== 'object') {
+    if (!source) {
       return null
+    }
+
+    if (typeof source !== 'object') {
+      const rawTime = new Date().toISOString()
+      return {
+        id: `${rawTime}-unknown-chat-${index}`,
+        type: fallbackType === 'card' ? 'card' : 'chat',
+        fromUsername: '未知用户',
+        userId: null,
+        message: String(source),
+        avatar: this.getAvatarUrl(''),
+        time: this.formatTime(rawTime),
+        rawTime
+      }
     }
 
     const rawTime = source.rawTime
@@ -46,32 +61,61 @@ class WebSocketService {
       || source.timestamp
       || source.time
       || new Date().toISOString()
-    const type = source.type || payload?.type || fallbackType
-    const message = source.message || source.content || ''
+    const parsedRawTime = new Date(rawTime)
+    const normalizedRawTime = Number.isNaN(parsedRawTime.getTime())
+      ? new Date().toISOString()
+      : parsedRawTime.toISOString()
+    const sourceType = source.type || source.messageType || source.contentType || payload?.type
+    const type = sourceType === 'card' || fallbackType === 'card'
+      ? 'card'
+      : 'chat'
+    const rawMessage = source.message
+      ?? source.content
+      ?? source.text
+      ?? source.msg
+      ?? source.body
+      ?? source.messageText
+      ?? source.chatContent
+      ?? ''
+    const message = typeof rawMessage === 'string'
+      ? rawMessage
+      : String(rawMessage || '')
 
     if (!message) {
       return null
     }
 
-    const avatar = source.avatar || source.fromAvatar || ''
-    const userId = Number(source.userId)
+    const avatar = source.avatar || source.fromAvatar || source.headImg || source.userAvatar || ''
+    const rawUserId = source.userId ?? source.fromUserId ?? source.senderId ?? source.id ?? null
+    const userId = rawUserId !== null && rawUserId !== undefined && rawUserId !== ''
+      ? Number(rawUserId)
+      : null
+    const sourceMessageId = source.id || source.messageId || source.msgId || source.uuid || null
 
     return {
-      id: source.id || `${rawTime}-${userId || 'unknown'}-${type}-${index}`,
+      id: sourceMessageId || `${normalizedRawTime}-${userId || 'unknown'}-${type}-${index}-${this.messageSeq++}`,
       type,
-      fromUsername: source.fromUsername || source.username || '未知用户',
+      fromUsername: source.fromUsername
+        || source.username
+        || source.nickname
+        || source.fromName
+        || source.senderName
+        || '未知用户',
       userId,
       message,
       avatar: this.getAvatarUrl(avatar),
       time: this.formatTime(rawTime),
-      rawTime: new Date(rawTime).toString() === 'Invalid Date'
-        ? new Date().toISOString()
-        : new Date(rawTime).toISOString()
+      rawTime: normalizedRawTime,
+      sourceMessageId
     }
   }
 
   hasMessage(messageData) {
     return this.messages.some((item) => {
+      if (item.sourceMessageId && messageData.sourceMessageId && item.sourceMessageId === messageData.sourceMessageId) {
+        return true
+      }
+
       if (item.id && messageData.id && item.id === messageData.id) {
         return true
       }
@@ -92,6 +136,11 @@ class WebSocketService {
 
     console.log('添加聊天消息:', messageData)
     this.messages.push(messageData)
+    this.messages.sort((a, b) => {
+      const timeA = a.rawTime ? new Date(a.rawTime).getTime() : 0
+      const timeB = b.rawTime ? new Date(b.rawTime).getTime() : 0
+      return timeA - timeB
+    })
     return messageData
   }
 

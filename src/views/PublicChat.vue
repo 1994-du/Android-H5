@@ -167,7 +167,7 @@ const initWebSocket = () => {
 const messages = computed(() => {
   const currentUserId = Number(userStore.id)
   return wsService.messages
-    .filter(msg => msg.type === 'chat' || msg.type === 'card')
+    .filter(msg => typeof msg?.message === 'string' && msg.message.trim())
     .sort((a, b) => {
       const timeA = a.rawTime ? new Date(a.rawTime).getTime() : (a.id || 0)
       const timeB = b.rawTime ? new Date(b.rawTime).getTime() : (b.id || 0)
