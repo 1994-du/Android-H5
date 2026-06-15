@@ -1,5 +1,5 @@
 <template>
-  <div class="public-chat dxx_wrap" :style="chatViewportStyle">
+  <div class="public-chat dxx_wrap">
     <Transition name="notify-fade">
       <div 
         v-if="notifyMessage.show" 
@@ -70,7 +70,7 @@
         </div>
       </Transition>
 
-      <div ref="inputAreaRef" class="input-area" :style="inputAreaStyle">
+      <div class="input-area" :style="inputAreaStyle">
         <div class="chat-toolbar">
           <button
             type="button"
@@ -164,10 +164,9 @@ const bottomAnchor = ref(null)
 const showOnlineUsers = ref(false)
 const onlineUsers = ref([])
 const keyboardHeight = ref(0)
-const inputAreaRef = ref(null)
 const textareaRef = ref(null)
 const activePanel = ref('')
-const composerBarHeight = ref(72)
+const BASE_COMPOSER_HEIGHT = 72
 const BOTTOM_PANEL_HEIGHT = 220
 const emojiList = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🥳', '🤔', '😭', '😡', '👍', '👀', '🙏', '🎉', '❤️', '🔥', '👏', '💪', '😴', '🤝', '✨', '🎈']
 const moreActionList = [
@@ -211,15 +210,6 @@ const handleInputBlur = () => {
   }, 100)
 }
 
-const updateComposerBarHeight = () => {
-  nextTick(() => {
-    if (inputAreaRef.value) {
-      const panelHeight = showEmojiPanel.value || showMorePanel.value ? BOTTOM_PANEL_HEIGHT : 0
-      composerBarHeight.value = Math.max(72, inputAreaRef.value.offsetHeight - panelHeight)
-    }
-  })
-}
-
 const resizeTextarea = () => {
   const textarea = textareaRef.value
 
@@ -227,7 +217,6 @@ const resizeTextarea = () => {
 
   textarea.style.height = '20px'
   textarea.style.height = `${Math.min(textarea.scrollHeight, 92)}px`
-  updateComposerBarHeight()
 }
 
 const handleInputChange = () => {
@@ -283,19 +272,12 @@ const messages = computed(() => {
     })
 })
 
-const chatViewportStyle = computed(() => {
-  if (keyboardHeight.value <= 0) {
-    return {}
-  }
-
-  return {
-    height: `calc(100vh - var(--app-header-height) - ${keyboardHeight.value}px)`,
-    marginBottom: '0px'
-  }
-})
+const keyboardOffset = computed(() => (
+  keyboardHeight.value > 0 ? keyboardHeight.value : 0
+))
 
 const chatContainerStyle = computed(() => ({
-  paddingBottom: `${currentComposerHeight.value}px`
+  paddingBottom: `${currentComposerHeight.value + keyboardOffset.value}px`
 }))
 
 const inputAreaStyle = computed(() => ({
@@ -305,11 +287,11 @@ const inputAreaStyle = computed(() => ({
 }))
 
 const onlineUsersOverlayStyle = computed(() => ({
-  bottom: `${currentComposerHeight.value}px`
+  bottom: `${currentComposerHeight.value + keyboardOffset.value}px`
 }))
 
 const currentComposerHeight = computed(() => (
-  composerBarHeight.value + ((showEmojiPanel.value || showMorePanel.value) ? BOTTOM_PANEL_HEIGHT : 0)
+  BASE_COMPOSER_HEIGHT + ((showEmojiPanel.value || showMorePanel.value) ? BOTTOM_PANEL_HEIGHT : 0)
 ))
 
 const scrollToBottom = () => {
@@ -336,7 +318,6 @@ watch(keyboardHeight, () => {
 
 watch(activePanel, () => {
   nextTick(() => {
-    updateComposerBarHeight()
     scrollToBottom()
   })
 })
@@ -348,9 +329,6 @@ const focusTextarea = () => {
 const toggleEmojiPanel = () => {
   if (showEmojiPanel.value) {
     activePanel.value = ''
-    nextTick(() => {
-      focusTextarea()
-    })
     return
   }
 
@@ -365,9 +343,6 @@ const toggleEmojiPanel = () => {
 const toggleMorePanel = () => {
   if (showMorePanel.value) {
     activePanel.value = ''
-    nextTick(() => {
-      focusTextarea()
-    })
     return
   }
 
@@ -578,7 +553,6 @@ onMounted(() => {
   scrollToBottom()
   nextTick(() => {
     resizeTextarea()
-    updateComposerBarHeight()
     initWebSocket()
   })
   
@@ -821,7 +795,7 @@ onUnmounted(() => {
 
 .emoji-panel-enter-active,
 .emoji-panel-leave-active {
-  transition: all 0.2s ease;
+  transition: all 0.22s ease;
 }
 
 .emoji-panel-enter-from,
@@ -904,7 +878,7 @@ onUnmounted(() => {
 
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.22s ease;
 }
 
 .drawer-slide-enter-from,
