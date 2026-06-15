@@ -1,6 +1,6 @@
 <template>
   <div class="dxx-header" :style="headerStyle">
-    <div class="header-bg"></div>
+    <div class="header-bg" :style="headerBgStyle"></div>
     <div class="header-content">
       <div class="left" v-if="showBack" @click="handleBack">
         <div class="back-btn">
@@ -54,6 +54,20 @@ const headerStyle = computed(() => {
     }
   }
   return {}
+})
+
+const headerBgStyle = computed(() => {
+  if (props.bgImage) {
+    return {
+      background: 'transparent'
+    }
+  }
+
+  return {
+    background: props.bgColor
+      ? props.bgColor
+      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+  }
 })
 
 const handleBack = () => {

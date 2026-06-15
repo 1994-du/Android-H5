@@ -1,5 +1,4 @@
 <template>
-  <DxxHeader :show-back="true" bgColor="#1989fa">编辑资料</DxxHeader>
   <div class="profile-edit dxx_wrap">
     <div class="content">
       <div class="avatar-section">
@@ -59,7 +58,6 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showLoadingToast, closeToast } from 'vant'
-import DxxHeader from '@/components/DxxHeader.vue'
 import { useUserStore } from '@/stores/user'
 import { updateAvatar, setUser } from '@/api/user'
 
@@ -259,13 +257,11 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .profile-edit {
-  min-height: 100vh;
   background-color: #f5f5f5;
 }
 
 .content {
   padding: 15px;
-  padding-top: calc(46px + var(--status-bar-height) + 15px);
 }
 
 .avatar-section {

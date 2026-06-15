@@ -1,5 +1,4 @@
 <template>
-  <DxxHeader :show-back="false">我的</DxxHeader>
   <div class="about dxx_wrap">
     <div class="content">
       <div class="user-card">
@@ -39,7 +38,6 @@
         退出登录
       </van-button>
     </div>
-    <DxxTabbar />
   </div>
 </template>
 
@@ -47,8 +45,6 @@
 import { ref,computed,onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
-import DxxHeader from '@/components/DxxHeader.vue'
-import DxxTabbar from '@/components/DxxTabbar.vue'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -92,7 +88,6 @@ const handleLogout = async () => {
 
 <style scoped lang="less">
 .about {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
   background-color: #f5f5f5;
@@ -101,8 +96,6 @@ const handleLogout = async () => {
 .content {
   flex: 1;
   padding: 15px;
-  padding-top: calc(46px + var(--status-bar-height) + 15px);
-  padding-bottom: 60px;
 }
 
 .user-card {

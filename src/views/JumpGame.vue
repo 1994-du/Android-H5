@@ -1,5 +1,4 @@
 <template>
-  <DxxHeader :show-back="true">跳一跳</DxxHeader>
   <div class="jump-game dxx_wrap">
     <div class="game-stage">
       <canvas
@@ -46,7 +45,6 @@
 
 <script setup>
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import DxxHeader from '@/components/DxxHeader.vue'
 
 const MAX_HOLD = 1100
 const POWER_TO_DISTANCE = 0.2
@@ -548,8 +546,7 @@ onBeforeUnmount(() => {
 
 <style scoped lang="less">
 .jump-game {
-  min-height: 100vh;
-  padding-top: calc(46px + var(--status-bar-height));
+  height: 100%;
   overflow: hidden;
   background: linear-gradient(180deg, #d7f7ff 0%, #f9f2d7 55%, #f7d6c8 100%);
 }
@@ -558,7 +555,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   max-width: 520px;
-  height: calc(100vh - 46px - var(--status-bar-height));
+  height: 100%;
   margin: 0 auto;
   overflow: hidden;
 }

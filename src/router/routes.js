@@ -8,7 +8,9 @@ export default [
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: {
-      title: '登录'
+      title: '登录',
+      showHeader: false,
+      showTabbar: false
     }
   },
   {
@@ -17,6 +19,9 @@ export default [
     component: () => import('@/views/PublicChat.vue'),
     meta: {
       title: '公共聊天',
+      showBack: false,
+      showTabbar: true,
+      showHeaderAction: 'online-users',
       requiresAuth: true
     }
   },
@@ -26,6 +31,8 @@ export default [
     component: () => import('@/views/About.vue'),
     meta: {
       title: '我的',
+      showBack: false,
+      showTabbar: true,
       requiresAuth: true
     }
   },
@@ -35,6 +42,7 @@ export default [
     component: () => import('@/views/ProfileEdit.vue'),
     meta: {
       title: '编辑资料',
+      headerBgColor: '#1989fa',
       requiresAuth: true
     }
   },
@@ -44,6 +52,8 @@ export default [
     component: () => import('@/views/NineBall.vue'),
     meta: {
       title: '九球计分',
+      showBack: false,
+      showTabbar: true,
       requiresAuth: true
     }
   },
@@ -62,6 +72,7 @@ export default [
     component: () => import('@/views/UserSelect.vue'),
     meta: {
       title: '选人页面',
+      customBack: true,
       requiresAuth: true
     }
   }

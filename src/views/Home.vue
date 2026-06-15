@@ -1,5 +1,4 @@
 <template>
-  <DxxHeader :show-back="false">首页</DxxHeader>
   <div class="home dxx_wrap">
     <div class="content">
       <van-cell-group inset>
@@ -17,15 +16,12 @@
         <van-cell title="消息页面" is-link to="/message" />
       </van-cell-group>
     </div>
-    <DxxTabbar />
   </div>
 </template>
 
 <script setup>
 import { useCounterStore } from '@/stores/counter'
 import { storeToRefs } from 'pinia'
-import DxxHeader from '@/components/DxxHeader.vue'
-import DxxTabbar from '@/components/DxxTabbar.vue'
 
 const counterStore = useCounterStore()
 const { count, doubleCount } = storeToRefs(counterStore)
@@ -34,7 +30,6 @@ const { increment, decrement } = counterStore
 
 <style scoped lang="less">
 .home {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -42,8 +37,6 @@ const { increment, decrement } = counterStore
 .content {
   flex: 1;
   padding: 15px;
-  padding-top: calc(46px + var(--status-bar-height) + 15px);
-  padding-bottom: 60px;
 }
 
 .button-group {

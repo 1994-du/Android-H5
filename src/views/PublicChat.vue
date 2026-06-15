@@ -1,17 +1,11 @@
 <template>
-  <DxxHeader :show-back="false">
-    公共聊天
-    <template #right>
-      <van-icon name="friends-o" size="20" @click="showOnlineUsers = true" />
-    </template>
-  </DxxHeader>
   <div class="public-chat dxx_wrap">
     <Transition name="notify-fade">
       <div 
         v-if="notifyMessage.show" 
         class="custom-notify"
         :style="{ 
-          top: `calc(var(--status-bar-height) + 46px)`,
+          top: 'var(--app-header-height)',
           background: notifyMessage.background 
         }"
       >
@@ -65,9 +59,6 @@
         </van-field>
       </div>
     </div>
-    
-    <DxxTabbar />
-    
     <van-popup 
       v-model:show="showOnlineUsers" 
       position="right" 
@@ -104,8 +95,6 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { showToast } from 'vant'
-import DxxHeader from '@/components/DxxHeader.vue'
-import DxxTabbar from '@/components/DxxTabbar.vue'
 import { useUserStore } from '@/stores/user'
 import wsService from '@/utils/websocket'
 
@@ -312,6 +301,12 @@ const handleChatHistory = (messages) => {
   scrollToBottom()
 }
 
+const handleHeaderAction = (event) => {
+  if (event.detail?.action === 'online-users') {
+    showOnlineUsers.value = true
+  }
+}
+
 onMounted(() => {
   scrollToBottom()
   nextTick(() => {
@@ -324,6 +319,7 @@ onMounted(() => {
   wsService.on('onlineUsers', handleOnlineUsers)
   wsService.on('userOnline', handleUserOnline)
   wsService.on('userOffline', handleUserOffline)
+  window.addEventListener('app-header-action', handleHeaderAction)
   
   window.handleKeyboardStatus = function(visible, height) {
     console.log('输入法状态:', { visible, height })
@@ -338,6 +334,7 @@ onUnmounted(() => {
   wsService.off('onlineUsers', handleOnlineUsers)
   wsService.off('userOnline', handleUserOnline)
   wsService.off('userOffline', handleUserOffline)
+  window.removeEventListener('app-header-action', handleHeaderAction)
   
   window.handleKeyboardStatus = null
 })
@@ -345,7 +342,6 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .public-chat {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
   background-color: #f7f8fa;
@@ -355,8 +351,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding-top: calc(46px + var(--status-bar-height));
-  padding-bottom: 110px;
+  min-height: 0;
 }
 
 .message-list {
@@ -433,7 +428,7 @@ onUnmounted(() => {
 
 .input-area {
   position: fixed;
-  bottom: 50px;
+  bottom: calc(var(--app-tabbar-height));
   left: 0;
   right: 0;
   background: #fff;
@@ -455,7 +450,6 @@ onUnmounted(() => {
   background: #fff;
   display: flex;
   flex-direction: column;
-  padding-top: var(--status-bar-height);
 }
 
 .panel-header {

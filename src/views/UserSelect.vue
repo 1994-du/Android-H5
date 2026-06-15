@@ -1,7 +1,5 @@
 <template>
-  <div class="user-select-page">
-    <DxxHeader :show-back="true" @click-back="handleBack">选择用户</DxxHeader>
-    
+  <div class="user-select-page dxx_wrap">
     <div class="container">
       <!-- 搜索框 -->
       <div class="search-section">
@@ -79,7 +77,6 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { Search, List, Cell, Checkbox, Button, showToast } from 'vant';
-import DxxHeader from '@/components/DxxHeader.vue';
 import { getUsers } from '@/api/user';
 
 const router = useRouter();
@@ -101,11 +98,6 @@ const from = ref('');
 watch(() => route.query.from, (newFrom) => {
   from.value = newFrom || '';
 }, { immediate: true });
-
-// 处理返回
-const handleBack = () => {
-  router.back();
-};
 
 // 模拟用户列表数据
 const mockUserList = [
@@ -234,16 +226,18 @@ onMounted(() => {
 
 <style scoped>
 .user-select-page {
-  min-height: 100vh;
   background-color: #f5f5f5;
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 .container {
   flex: 1;
   padding: 16px;
-  padding-top: 60px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .search-section {
@@ -352,7 +346,7 @@ onMounted(() => {
 
 .confirm-section {
   position: fixed;
-  bottom: 0;
+  bottom: var(--app-tabbar-height);
   left: 0;
   right: 0;
   background-color: white;
@@ -372,7 +366,6 @@ onMounted(() => {
 @media (max-width: 768px) {
   .container {
     padding: 12px;
-    padding-top: 60px;
   }
   
   .user-avatar {
