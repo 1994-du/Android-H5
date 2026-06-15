@@ -27,7 +27,7 @@ jobs:
           run: rm -rf node_modules
 
         - name: 安装依赖
-          run: npm install --legacy-peer-deps
+          run: npm install
 
         - name: 打包项目
           run: npm run build-prod
