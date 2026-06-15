@@ -1,6 +1,4 @@
 import { reactive } from 'vue'
-import { showToast } from 'vant'
-import { useUserStore } from '@/stores/user'
 
 class WebSocketService {
   constructor() {
@@ -12,6 +10,111 @@ class WebSocketService {
     this.userInfo = null
     this.messages = reactive([])
     this.shouldReconnect = false
+  }
+
+  formatTime(timeValue) {
+    if (!timeValue) {
+      const now = new Date()
+      const hours = now.getHours().toString().padStart(2, '0')
+      const minutes = now.getMinutes().toString().padStart(2, '0')
+      return `${hours}:${minutes}`
+    }
+
+    const date = new Date(timeValue)
+    if (Number.isNaN(date.getTime())) {
+      return typeof timeValue === 'string' ? timeValue : this.formatTime()
+    }
+
+    const hours = date.getHours().toString().padStart(2, '0')
+    const minutes = date.getMinutes().toString().padStart(2, '0')
+    return `${hours}:${minutes}`
+  }
+
+  normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
+    const source = payload?.payload && typeof payload.payload === 'object'
+      ? payload.payload
+      : payload
+
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    const rawTime = source.rawTime
+      || source.createdAt
+      || source.createTime
+      || source.sendTime
+      || source.timestamp
+      || source.time
+      || new Date().toISOString()
+    const type = source.type || payload?.type || fallbackType
+    const message = source.message || source.content || ''
+
+    if (!message) {
+      return null
+    }
+
+    const avatar = source.avatar || source.fromAvatar || ''
+    const userId = Number(source.userId)
+
+    return {
+      id: source.id || `${rawTime}-${userId || 'unknown'}-${type}-${index}`,
+      type,
+      fromUsername: source.fromUsername || source.username || '未知用户',
+      userId,
+      message,
+      avatar: this.getAvatarUrl(avatar),
+      time: this.formatTime(rawTime),
+      rawTime: new Date(rawTime).toString() === 'Invalid Date'
+        ? new Date().toISOString()
+        : new Date(rawTime).toISOString()
+    }
+  }
+
+  hasMessage(messageData) {
+    return this.messages.some((item) => {
+      if (item.id && messageData.id && item.id === messageData.id) {
+        return true
+      }
+
+      return item.userId === messageData.userId
+        && item.message === messageData.message
+        && item.rawTime === messageData.rawTime
+        && item.type === messageData.type
+    })
+  }
+
+  appendMessage(payload, fallbackType = 'chat', index = 0) {
+    const messageData = this.normalizeChatMessage(payload, fallbackType, index)
+
+    if (!messageData || this.hasMessage(messageData)) {
+      return null
+    }
+
+    console.log('添加聊天消息:', messageData)
+    this.messages.push(messageData)
+    return messageData
+  }
+
+  addHistoryMessages(payload) {
+    const historyList = Array.isArray(payload)
+      ? payload
+      : payload?.list || payload?.messages || payload?.records || []
+
+    if (!Array.isArray(historyList) || historyList.length === 0) {
+      return []
+    }
+
+    const normalizedMessages = historyList
+      .map((item, index) => this.appendMessage(item, item?.type || 'chat', index))
+      .filter(Boolean)
+
+    this.messages.sort((a, b) => {
+      const timeA = a.rawTime ? new Date(a.rawTime).getTime() : 0
+      const timeB = b.rawTime ? new Date(b.rawTime).getTime() : 0
+      return timeA - timeB
+    })
+
+    return normalizedMessages
   }
 
   getAvatarUrl(avatar) {
@@ -84,23 +187,14 @@ class WebSocketService {
     switch (data.type) {
       case 'chat':
         console.log('收到聊天消息:', data.payload)
-        this.addChatMessage(data.payload)
+        this.appendMessage(data.payload, data.type)
         this.emit('chat', data.payload)
         break
       case 'chatHistory':
         console.log('收到聊天历史消息:', data)
         console.log('聊天历史消息参数:', data.payload)
-        
-        // 处理聊天历史消息
-        if (Array.isArray(data.payload)) {
-          data.payload.forEach(msg => {
-            if (msg.type === 'chat') {
-              this.addChatMessage(msg)
-            }
-          })
-        }
-        
-        this.emit('chatHistory', data.payload)
+
+        this.emit('chatHistory', this.addHistoryMessages(data.payload))
         break
       case 'onlineUsers':
         console.log('收到在线用户列表:', data.payload)
@@ -115,31 +209,6 @@ class WebSocketService {
       default:
         console.log('未知消息类型:', data.type)
     }
-  }
-
-  addChatMessage(payload) {
-    const now = new Date()
-    const hours = now.getHours().toString().padStart(2, '0')
-    const minutes = now.getMinutes().toString().padStart(2, '0')
-    const time = `${hours}:${minutes}`
-    const rawTime = now.toISOString()
-    
-    const avatar = payload.avatar || payload.fromAvatar || ''
-    const avatarUrl = this.getAvatarUrl(avatar)
-    
-    const messageData = {
-      id: payload.id || Date.now(),
-      type: 'chat',
-      fromUsername: payload.fromUsername || payload.username,
-      userId: Number(payload.userId),
-      message: payload.message || payload.content,
-      avatar: avatarUrl,
-      time: time,
-      rawTime: rawTime
-    }
-    
-    console.log('添加聊天消息:', messageData)
-    this.messages.push(messageData)
   }
 
   send(data) {

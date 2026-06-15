@@ -106,7 +106,6 @@ const bottomAnchor = ref(null)
 const showOnlineUsers = ref(false)
 const onlineUsers = ref([])
 const keyboardHeight = ref(0)
-const defaultBottom = 50
 const inputRef = ref(null)
 
 const notifyMessage = ref({
@@ -294,10 +293,8 @@ const handleReady = () => {
   console.log('WebSocket已准备好')
 }
 
-const handleChatHistory = (messages) => {
-  console.log('收到聊天历史:', messages)
-  // 聊天历史已经在WebSocket服务中处理并添加到messages数组
-  // 这里可以添加额外的处理逻辑
+const handleChatHistory = (historyMessages) => {
+  console.log('收到聊天历史并已回显:', historyMessages)
   scrollToBottom()
 }
 
