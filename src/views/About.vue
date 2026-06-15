@@ -30,21 +30,6 @@
           to="/jump-game"
         />
       </van-cell-group>
-      <div style="display: flex;" v-for="item in demolist" :key="item.id">
-        <img src="/img/qp_01.png" alt="" style="width:40px;height: 40px;flex-shrink: 0;margin-right: 12px;">
-        <van-text-ellipsis
-          rows="3"
-          :content="item.description"
-        >
-          <template #action="{ expanded }">
-            <div :style="{'display': expanded ? 'block' : 'inline'}">
-              <span style="margin-right: 5px;">{{ expanded ? '收起' : '展开' }}</span>
-              <van-icon name="arrow-down" v-if="!expanded"/>
-              <van-icon name="arrow-up" v-else/>
-            </div>
-          </template>
-        </van-text-ellipsis>
-      </div>
       <van-button 
         type="danger" 
         class="logout-btn"
@@ -103,28 +88,6 @@ const handleLogout = async () => {
     // 用户取消
   }
 }
-let demolist = ref([])
-onMounted(() => {
-  setTimeout(() => {
-    demolist.value = [
-    {
-      id: 1,
-      title: '示例数据1',
-      description: '这是一些示例数据，用于展示列表项的样式和布局'
-    },
-    {
-      id: 1,
-      title: '示例数据1',
-      description: '这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局这是一些示例数据，用于展示列表项的样式和布局'
-    },
-    {
-      id: 1,
-      title: '示例数据1',
-      description: '这是一些示例数据，用于展示列表项的样式和布局'
-    }
-  ]
-  }, 1000)
-})
 </script>
 
 <style scoped lang="less">

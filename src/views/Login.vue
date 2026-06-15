@@ -201,10 +201,7 @@ const handleSubmit = async () => {
         type: 'success',
         message: isLogin.value ? '登录成功' : '注册成功'
       })
-      setTimeout(() => {
-        router.push('/public-chat')
-      }, 2000)
-      // await router.replace('/public-chat')
+      router.push('/public-chat')
     } else {
       errorMessage.value = res.msg || res.message || (isLogin.value ? '登录失败' : '注册失败')
     }

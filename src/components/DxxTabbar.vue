@@ -4,7 +4,7 @@
       公共聊天
       <van-badge v-if="unreadCount > 0" :content="unreadCount" class="message-badge" />
     </van-tabbar-item>
-    <van-tabbar-item icon="records" to="/nine-ball">
+    <van-tabbar-item icon="records-o" to="/nine-ball">
       台球
     </van-tabbar-item>
     <van-tabbar-item icon="user-o" to="/about">
