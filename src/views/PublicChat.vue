@@ -12,7 +12,7 @@
         {{ notifyMessage.text }}
       </div>
     </Transition>
-    <div class="chat-container" :style="{ paddingBottom: keyboardHeight > 0 ? (keyboardHeight + 60) + 'px' : '110px' }">
+    <div class="chat-container" :style="{ paddingBottom: keyboardHeight > 0 ? (keyboardHeight + 60) + 'px' : '64px' }">
       <div class="message-list" ref="messageList">
         <div 
           v-for="(msg, index) in messages" 
