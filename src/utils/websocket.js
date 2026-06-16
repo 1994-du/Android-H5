@@ -1,5 +1,7 @@
 import { reactive } from 'vue'
 
+const DEFAULT_AVATAR_URL = `${import.meta.env.BASE_URL}avatar-default.svg`
+
 class WebSocketService {
   constructor() {
     this.ws = null
@@ -11,6 +13,8 @@ class WebSocketService {
     this.messages = reactive([])
     this.shouldReconnect = false
     this.messageSeq = 0
+    this.avatarUrlCache = new Map()
+    this.preloadedAvatars = new Set()
   }
 
   formatTime(timeValue) {
@@ -181,6 +185,221 @@ class WebSocketService {
     const fullUrl = baseUrl.replace(/\/$/, '') + avatar
     console.log('getAvatarUrl 输出(拼接):', { baseUrl, avatar, fullUrl })
     return fullUrl
+  }
+
+  isSameMessage(item, messageData) {
+    if (item.sourceMessageId && messageData.sourceMessageId && item.sourceMessageId === messageData.sourceMessageId) {
+      return true
+    }
+
+    if (item.id && messageData.id && item.id === messageData.id) {
+      return true
+    }
+
+    return item.userId === messageData.userId
+      && item.message === messageData.message
+      && item.rawTime === messageData.rawTime
+      && item.type === messageData.type
+  }
+
+  hasMessage(messageData) {
+    return this.messages.some((item) => this.isSameMessage(item, messageData))
+  }
+
+  sortMessages() {
+    this.messages.sort((a, b) => {
+      const timeA = a.rawTime ? new Date(a.rawTime).getTime() : 0
+      const timeB = b.rawTime ? new Date(b.rawTime).getTime() : 0
+      return timeA - timeB
+    })
+  }
+
+  preloadAvatar(avatarUrl) {
+    if (!avatarUrl || this.preloadedAvatars.has(avatarUrl) || typeof Image === 'undefined') {
+      return
+    }
+
+    this.preloadedAvatars.add(avatarUrl)
+    const image = new Image()
+    image.decoding = 'async'
+    image.src = avatarUrl
+  }
+
+  appendMessage(payload, fallbackType = 'chat', index = 0, options = {}) {
+    const messageData = this.normalizeChatMessage(payload, fallbackType, index)
+
+    if (!messageData || this.hasMessage(messageData)) {
+      return null
+    }
+
+    this.messages.push(messageData)
+    this.preloadAvatar(messageData.avatar)
+
+    if (!options.skipSort) {
+      this.sortMessages()
+    }
+
+    return messageData
+  }
+
+  addHistoryMessages(payload) {
+    const historyList = Array.isArray(payload)
+      ? payload
+      : payload?.list || payload?.messages || payload?.records || []
+
+    if (!Array.isArray(historyList) || historyList.length === 0) {
+      return []
+    }
+
+    const normalizedMessages = []
+
+    historyList.forEach((item, index) => {
+      const messageData = this.normalizeChatMessage(item, item?.type || 'chat', index)
+
+      if (!messageData || this.hasMessage(messageData)) {
+        return
+      }
+
+      const existsInBatch = normalizedMessages.some((message) => this.isSameMessage(message, messageData))
+      if (!existsInBatch) {
+        normalizedMessages.push(messageData)
+      }
+    })
+
+    if (normalizedMessages.length === 0) {
+      return []
+    }
+
+    normalizedMessages.forEach((message) => this.preloadAvatar(message.avatar))
+    this.messages.push(...normalizedMessages)
+    this.sortMessages()
+
+    return normalizedMessages
+  }
+
+  getAvatarUrl(avatar) {
+    const normalizedAvatar = typeof avatar === 'string' ? avatar.trim() : ''
+
+    if (!normalizedAvatar) {
+      return DEFAULT_AVATAR_URL
+    }
+
+    if (this.avatarUrlCache.has(normalizedAvatar)) {
+      return this.avatarUrlCache.get(normalizedAvatar)
+    }
+
+    if (
+      normalizedAvatar.startsWith('http')
+      || normalizedAvatar.startsWith('data:')
+      || normalizedAvatar.startsWith('blob:')
+    ) {
+      this.avatarUrlCache.set(normalizedAvatar, normalizedAvatar)
+      return normalizedAvatar
+    }
+
+    const baseUrl = (import.meta.env.VITE_PROXY || '').trim()
+    let fullUrl = normalizedAvatar
+
+    if (baseUrl) {
+      try {
+        fullUrl = new URL(
+          normalizedAvatar.replace(/^\/+/, ''),
+          baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+        ).toString()
+      } catch (error) {
+        fullUrl = `${baseUrl.replace(/\/$/, '')}/${normalizedAvatar.replace(/^\/+/, '')}`
+      }
+    }
+
+    this.avatarUrlCache.set(normalizedAvatar, fullUrl)
+    return fullUrl
+  }
+
+  normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
+    const source = payload?.payload && typeof payload.payload === 'object'
+      ? { ...payload.payload, clientMessageId: payload.clientMessageId || payload.payload.clientMessageId }
+      : payload
+
+    if (!source) {
+      return null
+    }
+
+    if (typeof source !== 'object') {
+      const rawTime = new Date().toISOString()
+      return {
+        id: `${rawTime}-unknown-chat-${index}`,
+        type: fallbackType === 'card' ? 'card' : 'chat',
+        fromUsername: '未知用户',
+        userId: null,
+        message: String(source),
+        image: '',
+        avatar: this.getAvatarUrl(''),
+        time: this.formatTime(rawTime),
+        rawTime
+      }
+    }
+
+    const rawTime = source.rawTime
+      || source.createdAt
+      || source.createTime
+      || source.sendTime
+      || source.timestamp
+      || source.time
+      || new Date().toISOString()
+    const parsedRawTime = new Date(rawTime)
+    const normalizedRawTime = Number.isNaN(parsedRawTime.getTime())
+      ? new Date().toISOString()
+      : parsedRawTime.toISOString()
+    const sourceType = source.type || source.messageType || source.contentType || payload?.messageType || payload?.type
+    const image = source.image || source.imageUrl || source.imagePath || source.picture || source.mediaUrl || ''
+    const type = sourceType === 'card'
+      ? 'card'
+      : sourceType === 'image' || image
+        ? 'image'
+        : fallbackType === 'card'
+          ? 'card'
+          : 'chat'
+    const rawMessage = source.message
+      ?? source.content
+      ?? source.text
+      ?? source.msg
+      ?? source.body
+      ?? source.messageText
+      ?? source.chatContent
+      ?? ''
+    const message = typeof rawMessage === 'string'
+      ? rawMessage
+      : String(rawMessage || '')
+
+    if (!message && !image) {
+      return null
+    }
+
+    const avatar = source.avatar || source.fromAvatar || source.headImg || source.userAvatar || ''
+    const rawUserId = source.userId ?? source.fromUserId ?? source.senderId ?? source.id ?? null
+    const userId = rawUserId !== null && rawUserId !== undefined && rawUserId !== ''
+      ? Number(rawUserId)
+      : null
+    const sourceMessageId = source.id || source.messageId || source.msgId || source.uuid || source.clientMessageId || null
+
+    return {
+      id: sourceMessageId || `${normalizedRawTime}-${userId || 'unknown'}-${type}-${index}-${this.messageSeq++}`,
+      type,
+      messageType: sourceType || type,
+      fromUsername: source.fromUsername
+        || source.username
+        || source.nickname
+        || source.fromName
+        || source.senderName
+        || '未知用户',
+      userId,
+      message,
+      image: image ? this.getAvatarUrl(image) : '',
+      avatar: this.getAvatarUrl(avatar),
+      time: this.formatTime(rawTime),
+      rawTime: normalizedRawTime,
+      sourceMessageId
+    }
   }
 
   connect(url, userInfo) {

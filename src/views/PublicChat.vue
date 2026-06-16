@@ -29,7 +29,16 @@
           </div>
           <div class="message-content">
             <div class="username" v-if="!msg.isSelf">{{ msg.fromUsername }}</div>
-            <div :class="['bubble', msg.type === 'card' ? 'card-bubble' : '']">{{ msg.content }}</div>
+            <div :class="['bubble', msg.type === 'card' ? 'card-bubble' : '', msg.image ? 'image-bubble' : '']">
+              <van-image
+                v-if="msg.image"
+                :src="msg.image"
+                fit="cover"
+                class="message-image"
+                @click="previewImage(msg.image)"
+              />
+              <span v-else>{{ msg.content }}</span>
+            </div>
             <div class="time">{{ msg.time }}</div>
           </div>
         </div>
@@ -136,7 +145,7 @@
               :key="action.title"
               type="button"
               class="more-item"
-              @click="handleMoreAction(action)"
+                @click="handleMoreActionCompat(action)"
             >
               <span class="more-icon" :style="{ background: action.background }">
                 <van-icon :name="action.icon" size="22" />
@@ -145,6 +154,22 @@
             </button>
           </div>
         </Transition>
+
+        <input
+          ref="cameraInputRef"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          class="hidden-file-input"
+          @change="handleFileInputChange"
+        />
+        <input
+          ref="galleryInputRef"
+          type="file"
+          accept="image/*"
+          class="hidden-file-input"
+          @change="handleFileInputChange"
+        />
       </div>
     </div>
   </div>
@@ -152,7 +177,7 @@
 
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
-import { showToast } from 'vant'
+import { showImagePreview, showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 import wsService from '@/utils/websocket'
 
@@ -161,6 +186,8 @@ const userStore = useUserStore()
 const inputMessage = ref('')
 const messageList = ref(null)
 const bottomAnchor = ref(null)
+const cameraInputRef = ref(null)
+const galleryInputRef = ref(null)
 const showOnlineUsers = ref(false)
 const onlineUsers = ref([])
 const keyboardHeight = ref(0)
@@ -170,8 +197,8 @@ const BASE_COMPOSER_HEIGHT = 72
 const BOTTOM_PANEL_HEIGHT = 220
 const emojiList = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🥳', '🤔', '😭', '😡', '👍', '👀', '🙏', '🎉', '❤️', '🔥', '👏', '💪', '😴', '🤝', '✨', '🎈']
 const moreActionList = [
-  { title: '拍照', icon: 'photograph', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
-  { title: '相册', icon: 'photo-o', background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }
+  { title: '拍照', value: 'camera', icon: 'photograph', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
+  { title: '相册', value: 'gallery', icon: 'photo-o', background: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' }
 ]
 
 const notifyMessage = ref({
@@ -194,6 +221,110 @@ const showUserNotify = (text, background = '#07c160') => {
   notifyTimer = setTimeout(() => {
     notifyMessage.value.show = false
   }, 2000)
+}
+
+const resetFileInput = (inputRef) => {
+  if (inputRef.value) {
+    inputRef.value.value = ''
+  }
+}
+
+const getFileInputKind = (target) => {
+  if (target === cameraInputRef.value) return 'camera'
+  if (target === galleryInputRef.value) return 'gallery'
+  return 'gallery'
+}
+
+const getBase64FromFile = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(reader.error || new Error('读取图片失败'))
+  reader.readAsDataURL(file)
+})
+
+const sendImageMessage = async (imageUrl, source = 'gallery') => {
+  if (!wsService.isConnected || !wsService.isReady) {
+    showToast('正在连接服务，请稍后再试')
+    return
+  }
+
+  const now = new Date()
+  const hours = now.getHours().toString().padStart(2, '0')
+  const minutes = now.getMinutes().toString().padStart(2, '0')
+  const time = `${hours}:${minutes}`
+  const clientMessageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+  wsService.send({
+    type: 'chat',
+    messageType: 'image',
+    clientMessageId,
+    payload: {
+      userId: Number(userStore.id),
+      fromUsername: userStore.username,
+      avatar: userStore.avatar,
+      message: '',
+      content: '',
+      time,
+      image: imageUrl,
+      imageUrl,
+      type: 'image',
+      messageType: 'image',
+      source
+    }
+  })
+
+  wsService.appendMessage({
+    clientMessageId,
+    userId: Number(userStore.id),
+    fromUsername: userStore.username,
+    avatar: userStore.avatar,
+    message: '',
+    content: '',
+    time,
+    image: imageUrl,
+    imageUrl,
+    type: 'image',
+    messageType: 'image'
+  })
+
+  activePanel.value = ''
+}
+
+const handleFileInputChange = async (event) => {
+  const target = event.target
+  const file = target?.files?.[0]
+  if (!file) return
+
+  try {
+    const dataUrl = await getBase64FromFile(file)
+    await sendImageMessage(dataUrl, getFileInputKind(target))
+  } catch (error) {
+    console.error('读取图片失败:', error)
+    showToast('读取图片失败')
+  } finally {
+    resetFileInput(cameraInputRef)
+    resetFileInput(galleryInputRef)
+  }
+}
+
+const handleMoreActionCompat = (action) => {
+  const value = action?.value || ''
+  if (value === 'camera') {
+    if (window.AndroidPhoto && window.AndroidPhoto.openCamera) {
+      window.AndroidPhoto.openCamera(callbackId)
+    } else {
+      cameraInputRef.value?.click()
+    }
+    return
+  }
+
+  if (value === 'gallery') {
+    if (window.AndroidPhoto && window.AndroidPhoto.openGallery) {
+      window.AndroidPhoto.openGallery(callbackId)
+    } else {
+      galleryInputRef.value?.click()
+    }
+  }
 }
 
 const handleInputFocus = () => {
@@ -251,8 +382,8 @@ const initWebSocket = () => {
 
 const messages = computed(() => {
   const currentUserId = Number(userStore.id)
-  return wsService.messages
-    .filter(msg => typeof msg?.message === 'string' && msg.message.trim())
+  return [...wsService.messages]
+    .filter(msg => msg?.image || (typeof msg?.message === 'string' && msg.message.trim()))
     .sort((a, b) => {
       const timeA = a.rawTime ? new Date(a.rawTime).getTime() : (a.id || 0)
       const timeB = b.rawTime ? new Date(b.rawTime).getTime() : (b.id || 0)
@@ -265,6 +396,7 @@ const messages = computed(() => {
         content: msg.message,
         type: msg.type,
         isSelf: isSelf,
+        image: msg.image || '',
         avatar: msg.avatar,
         time: msg.time,
         fromUsername: msg.fromUsername
@@ -407,39 +539,26 @@ const openGallery = () => {
 
 const handlePhotoResult = async (data) => {
   try {
-    const { callbackId: id, image: imageData } = data || {}
+    const { callbackId: id, image: imageData, imageBase64, imageUrl } = data || {}
     if (id !== callbackId) return
-    if (!imageData) {
+
+    const rawImage = imageData || imageBase64 || imageUrl
+    if (!rawImage) {
       showToast('图片数据为空')
       return
     }
 
-    let dataUrl = imageData
-    if (!imageData.startsWith('data:')) {
-      dataUrl = `data:image/jpeg;base64,${imageData}`
+    let dataUrl = rawImage
+    if (!rawImage.startsWith('data:')) {
+      dataUrl = `data:image/jpeg;base64,${rawImage}`
     }
 
-    const message = {
-      type: 'chat',
-      payload: {
-        userId: Number(userStore.id),
-        fromUsername: userStore.username,
-        avatar: userStore.avatar,
-        message: '[图片]',
-        content: '[图片]',
-        time: new Date().toTimeString().slice(0, 5),
-        image: dataUrl
-      }
-    }
-
-    wsService.send(message)
-    activePanel.value = ''
+    await sendImageMessage(dataUrl, 'android')
   } catch (error) {
     showToast('发送图片失败')
     console.error(error)
   }
 }
-
 const handlePhotoError = (data) => {
   const { callbackId: id, error } = data || {}
   if (id === callbackId) {
@@ -489,6 +608,11 @@ const sendMessage = () => {
 
 const handleChatMessage = () => {
   scrollToBottom()
+}
+
+const previewImage = (imageUrl) => {
+  if (!imageUrl) return
+  showImagePreview([imageUrl])
 }
 
 const handleOnlineUsers = (users) => {
@@ -661,6 +785,22 @@ onUnmounted(() => {
   word-wrap: break-word;
   word-break: break-all;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.image-bubble {
+  padding: 6px;
+}
+
+.message-image {
+  display: block;
+  width: 180px;
+  max-width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .card-bubble {
