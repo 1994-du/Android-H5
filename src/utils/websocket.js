@@ -4,7 +4,6 @@ import {
   connectNativeWebSocket,
   isNativeWebSocketAvailable,
   isNativeWebSocketConnected,
-  reconnectNativeWebSocket,
   registerNativeWebSocketHandlers,
   sendNativeWebSocket
 } from '@/utils/nativeBridge'
@@ -462,22 +461,22 @@ class WebSocketService {
     return this.isBrowserSocketOpen() && this.isConnected && this.isReady
   }
 
-  connect(url, userInfo) {
+  connect(url, userInfo, options = {}) {
     if (isNativeWebSocketAvailable()) {
-      this.connectNative(url, userInfo)
+      this.connectNative(url, userInfo, options)
       return
     }
 
     this.connectBrowser(url, userInfo)
   }
 
-  connectNative(url, userInfo) {
+  connectNative(url, userInfo, { force = false } = {}) {
     if (this.socketMode === 'native' && this.isSocketReady()) {
       console.log('原生 WebSocket 已连接，跳过重复连接')
       return
     }
 
-    if (this.socketMode === 'native' && this.isNativeConnecting) {
+    if (this.socketMode === 'native' && this.isNativeConnecting && !force) {
       console.log('原生 WebSocket 正在连接，跳过重复连接')
       return
     }
@@ -490,6 +489,11 @@ class WebSocketService {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
+    }
+
+    if (this.socketMode === 'native' && force) {
+      console.log('原生 WebSocket 强制重建连接')
+      closeNativeWebSocket()
     }
 
     this.socketMode = 'native'
@@ -721,10 +725,9 @@ class WebSocketService {
       return Promise.reject(new Error('缺少 WebSocket 用户信息'))
     }
 
-    this.connect(connectUrl, connectUserInfo)
-
     return new Promise((resolve, reject) => {
       let timer = null
+      let settled = false
 
       const cleanup = () => {
         if (timer) {
@@ -736,22 +739,38 @@ class WebSocketService {
       }
 
       const handleReady = () => {
+        if (settled) {
+          return
+        }
+        settled = true
         cleanup()
         resolve()
       }
 
       const handleError = (error) => {
+        if (settled) {
+          return
+        }
+        settled = true
         cleanup()
         reject(error || new Error('WebSocket 连接失败'))
       }
 
       timer = setTimeout(() => {
+        if (this.socketMode === 'native') {
+          closeNativeWebSocket()
+          this.isNativeConnecting = false
+          this.isConnected = false
+          this.isReady = false
+        }
         cleanup()
         reject(new Error('WebSocket 连接超时'))
       }, timeout)
 
       this.on('ready', handleReady)
       this.on('error', handleError)
+
+      this.connect(connectUrl, connectUserInfo, { force: true })
 
       if (this.isSocketReady()) {
         handleReady()
@@ -794,8 +813,8 @@ class WebSocketService {
       this.reconnectTimer = null
       const url = this.lastUrl || getDefaultWsUrl()
 
-      if (this.socketMode === 'native' && isNativeWebSocketAvailable() && reconnectNativeWebSocket()) {
-        this.isNativeConnecting = true
+      if (this.socketMode === 'native' && isNativeWebSocketAvailable()) {
+        this.connect(url, this.userInfo, { force: true })
         return
       }
 
