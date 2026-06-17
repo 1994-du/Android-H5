@@ -180,6 +180,12 @@ import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { showImagePreview, showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 import wsService from '@/utils/websocket'
+import {
+  openCamera as nativeOpenCamera,
+  openGallery as nativeOpenGallery,
+  registerKeyboardHandler,
+  registerPhotoHandlers
+} from '@/utils/nativeBridge'
 
 const userStore = useUserStore()
 
@@ -208,6 +214,8 @@ const notifyMessage = ref({
 })
 
 let notifyTimer = null
+let cleanupPhotoHandlers = null
+let cleanupKeyboardHandler = null
 
 const showEmojiPanel = computed(() => activePanel.value === 'emoji')
 const showMorePanel = computed(() => activePanel.value === 'more')
@@ -342,9 +350,7 @@ const handleMoreActionCompat = async (action) => {
   const value = action?.value || ''
   if (value === 'camera') {
     await ensureChatSocketReady({ silent: true })
-    if (window.AndroidPhoto && window.AndroidPhoto.openCamera) {
-      window.AndroidPhoto.openCamera(callbackId)
-    } else {
+    if (!nativeOpenCamera(callbackId)) {
       cameraInputRef.value?.click()
     }
     return
@@ -352,9 +358,7 @@ const handleMoreActionCompat = async (action) => {
 
   if (value === 'gallery') {
     await ensureChatSocketReady({ silent: true })
-    if (window.AndroidPhoto && window.AndroidPhoto.openGallery) {
-      window.AndroidPhoto.openGallery(callbackId)
-    } else {
+    if (!nativeOpenGallery(callbackId)) {
       galleryInputRef.value?.click()
     }
   }
@@ -552,34 +556,7 @@ const insertEmoji = (emoji) => {
   })
 }
 
-const handleMoreAction = (action) => {
-  if (action.title === '拍照') {
-    openCamera()
-    return
-  }
-
-  if (action.title === '相册') {
-    openGallery()
-  }
-}
-
 const callbackId = `chat_${Date.now()}`
-
-const openCamera = () => {
-  if (window.AndroidPhoto && window.AndroidPhoto.openCamera) {
-    window.AndroidPhoto.openCamera(callbackId)
-  } else {
-    showToast('当前环境不支持相机')
-  }
-}
-
-const openGallery = () => {
-  if (window.AndroidPhoto && window.AndroidPhoto.openGallery) {
-    window.AndroidPhoto.openGallery(callbackId)
-  } else {
-    showToast('当前环境不支持相册')
-  }
-}
 
 const handlePhotoResult = async (data) => {
   try {
@@ -734,13 +711,14 @@ onMounted(() => {
   window.addEventListener('focus', handleAppResume)
   window.addEventListener('pageshow', handleAppResume)
   document.addEventListener('visibilitychange', handleVisibilityChange)
-  window.handlePhotoResult = handlePhotoResult
-  window.handlePhotoError = handlePhotoError
-  
-  window.handleKeyboardStatus = function(visible, height) {
+  cleanupPhotoHandlers = registerPhotoHandlers({
+    onResult: handlePhotoResult,
+    onError: handlePhotoError
+  })
+  cleanupKeyboardHandler = registerKeyboardHandler((visible, height) => {
     console.log('输入法状态:', { visible, height })
     setKeyboardHeight(visible, height)
-  }
+  })
 })
 
 onUnmounted(() => {
@@ -754,10 +732,10 @@ onUnmounted(() => {
   window.removeEventListener('focus', handleAppResume)
   window.removeEventListener('pageshow', handleAppResume)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
-  window.handlePhotoResult = null
-  window.handlePhotoError = null
-  
-  window.handleKeyboardStatus = null
+  cleanupPhotoHandlers?.()
+  cleanupKeyboardHandler?.()
+  cleanupPhotoHandlers = null
+  cleanupKeyboardHandler = null
 })
 </script>
 

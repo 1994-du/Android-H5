@@ -60,6 +60,11 @@ import { useRouter } from 'vue-router'
 import { showToast, showLoadingToast, closeToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 import { updateAvatar, setUser } from '@/api/user'
+import {
+  openCamera as nativeOpenCamera,
+  openGallery as nativeOpenGallery,
+  registerPhotoHandlers
+} from '@/utils/nativeBridge'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -77,6 +82,7 @@ const avatarActions = [
 ]
 
 const callbackId = `avatar_${Date.now()}`
+let cleanupPhotoHandlers = null
 
 const onAvatarActionSelect = (action) => {
   if (action.value === 'camera') {
@@ -87,17 +93,13 @@ const onAvatarActionSelect = (action) => {
 }
 
 const openCamera = () => {
-  if (window.AndroidPhoto && window.AndroidPhoto.openCamera) {
-    window.AndroidPhoto.openCamera(callbackId)
-  } else {
+  if (!nativeOpenCamera(callbackId)) {
     showToast('当前环境不支持相机')
   }
 }
 
 const openGallery = () => {
-  if (window.AndroidPhoto && window.AndroidPhoto.openGallery) {
-    window.AndroidPhoto.openGallery(callbackId)
-  } else {
+  if (!nativeOpenGallery(callbackId)) {
     showToast('当前环境不支持相册')
   }
 }
@@ -106,13 +108,14 @@ const handlePhotoResult = async (data) => {
   console.log('handlePhotoResult 被调用:', data)
   
   try {
-    const { callbackId: id, image: imageData, type } = data || {}
+    const { callbackId: id, image, imageBase64, imageUrl, type } = data || {}
     
     if (id !== callbackId) {
       console.log('callbackId 不匹配', { id, callbackId })
       return
     }
     
+    const imageData = image || imageBase64 || imageUrl
     if (!imageData) {
       showToast('图片数据为空')
       return
@@ -245,13 +248,15 @@ const onCancel = () => {
 onMounted(() => {
   loadUserInfo()
   
-  window.handlePhotoResult = handlePhotoResult
-  window.handlePhotoError = handlePhotoError
+  cleanupPhotoHandlers = registerPhotoHandlers({
+    onResult: handlePhotoResult,
+    onError: handlePhotoError
+  })
 })
 
 onUnmounted(() => {
-  window.handlePhotoResult = null
-  window.handlePhotoError = null
+  cleanupPhotoHandlers?.()
+  cleanupPhotoHandlers = null
 })
 </script>
 

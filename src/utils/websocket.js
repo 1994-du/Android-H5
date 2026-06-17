@@ -1,20 +1,60 @@
 import { reactive } from 'vue'
+import {
+  closeNativeWebSocket,
+  connectNativeWebSocket,
+  isNativeWebSocketAvailable,
+  isNativeWebSocketConnected,
+  reconnectNativeWebSocket,
+  registerNativeWebSocketHandlers,
+  sendNativeWebSocket
+} from '@/utils/nativeBridge'
 
 const DEFAULT_AVATAR_URL = `${import.meta.env.BASE_URL}avatar-default.svg`
+const getDefaultWsUrl = () => import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
+const CONNECTED_NATIVE_STATES = ['open', 'opened', 'connected', 'ready']
+const CONNECTING_NATIVE_STATES = ['connecting', 'reconnecting']
+const CLOSED_NATIVE_STATES = ['close', 'closed', 'closing', 'disconnect', 'disconnected']
+const ERROR_NATIVE_STATES = ['error', 'failed', 'failure']
+
+const normalizeBoolean = (value) => {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value === 1
+  if (typeof value === 'string') return value.toLowerCase() === 'true' || value === '1'
+  return false
+}
+
+const parseSocketPayload = (payload) => {
+  if (typeof payload !== 'string') {
+    return payload
+  }
+
+  try {
+    return JSON.parse(payload)
+  } catch (error) {
+    return payload
+  }
+}
 
 class WebSocketService {
   constructor() {
     this.ws = null
+    this.socketMode = 'browser'
     this.isConnected = false
     this.isReady = false
+    this.isNativeConnecting = false
     this.reconnectTimer = null
     this.listeners = new Map()
     this.userInfo = null
+    this.lastUrl = ''
     this.messages = reactive([])
     this.shouldReconnect = false
     this.messageSeq = 0
     this.avatarUrlCache = new Map()
     this.preloadedAvatars = new Set()
+    this.cleanupNativeHandlers = registerNativeWebSocketHandlers({
+      onMessage: (data) => this.handleNativeMessage(data),
+      onStatus: (data) => this.handleNativeStatus(data)
+    })
   }
 
   formatTime(timeValue) {
@@ -402,7 +442,90 @@ class WebSocketService {
     }
   }
 
+  isBrowserSocketOpen() {
+    return typeof WebSocket !== 'undefined'
+      && this.ws
+      && this.ws.readyState === WebSocket.OPEN
+  }
+
+  isBrowserSocketConnecting() {
+    return typeof WebSocket !== 'undefined'
+      && this.ws
+      && this.ws.readyState === WebSocket.CONNECTING
+  }
+
+  isSocketReady() {
+    if (this.socketMode === 'native') {
+      return (this.isConnected && this.isReady) || isNativeWebSocketConnected()
+    }
+
+    return this.isBrowserSocketOpen() && this.isConnected && this.isReady
+  }
+
   connect(url, userInfo) {
+    if (isNativeWebSocketAvailable()) {
+      this.connectNative(url, userInfo)
+      return
+    }
+
+    this.connectBrowser(url, userInfo)
+  }
+
+  connectNative(url, userInfo) {
+    if (this.socketMode === 'native' && this.isSocketReady()) {
+      console.log('原生 WebSocket 已连接，跳过重复连接')
+      return
+    }
+
+    if (this.socketMode === 'native' && this.isNativeConnecting) {
+      console.log('原生 WebSocket 正在连接，跳过重复连接')
+      return
+    }
+
+    if (this.ws) {
+      this.ws.close()
+      this.ws = null
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+
+    this.socketMode = 'native'
+    this.shouldReconnect = true
+    this.userInfo = userInfo
+    this.lastUrl = url
+    this.isNativeConnecting = true
+    this.isConnected = false
+    this.isReady = false
+    console.log('开始连接原生 WebSocket:', url, '用户信息:', userInfo)
+
+    if (isNativeWebSocketConnected()) {
+      this.isNativeConnecting = false
+      this.isConnected = true
+      this.isReady = true
+      this.emit('open')
+      this.emit('ready')
+      return
+    }
+
+    const started = connectNativeWebSocket(url, userInfo)
+    if (!started) {
+      this.socketMode = 'browser'
+      this.isNativeConnecting = false
+      this.connectBrowser(url, userInfo)
+      return
+    }
+
+    setTimeout(() => {
+      if (this.socketMode === 'native' && !this.isReady && isNativeWebSocketConnected()) {
+        this.handleNativeStatus({ connected: true, ready: true, state: 'open' })
+      }
+    }, 0)
+  }
+
+  connectBrowser(url, userInfo) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected) {
       console.log('WebSocket 已连接，跳过重复连接')
       return
@@ -429,6 +552,9 @@ class WebSocketService {
 
     this.shouldReconnect = true
     this.userInfo = userInfo
+    this.lastUrl = url
+    this.socketMode = 'browser'
+    this.isNativeConnecting = false
     console.log('开始连接 WebSocket:', url, '用户信息:', userInfo)
     this.ws = new WebSocket(url)
 
@@ -470,6 +596,70 @@ class WebSocketService {
     }
   }
 
+  handleNativeMessage(payload) {
+    const data = parseSocketPayload(payload)
+
+    if (!data || typeof data !== 'object') {
+      console.warn('原生 WebSocket 消息格式异常:', payload)
+      return
+    }
+
+    this.handleMessage(data)
+  }
+
+  handleNativeStatus(payload) {
+    const status = parseSocketPayload(payload)
+    const statusData = status && typeof status === 'object'
+      ? status
+      : { state: String(status || '') }
+    const state = String(statusData.state || statusData.status || '').toLowerCase()
+    const connected = normalizeBoolean(statusData.connected) || CONNECTED_NATIVE_STATES.includes(state)
+    const ready = normalizeBoolean(statusData.ready) || connected
+    const connecting = CONNECTING_NATIVE_STATES.includes(state)
+    const failed = Boolean(statusData.error)
+      || ERROR_NATIVE_STATES.includes(state)
+      || CLOSED_NATIVE_STATES.includes(state)
+      || (statusData.connected === false && statusData.ready === false && !connecting)
+
+    if (connected || ready) {
+      const wasReady = this.isReady
+      this.socketMode = 'native'
+      this.isNativeConnecting = false
+      this.isConnected = true
+      this.isReady = true
+      this.emit('open')
+
+      if (!wasReady) {
+        this.emit('ready')
+        if (this.userInfo) {
+          this.sendOnline()
+        }
+      }
+      return
+    }
+
+    if (connecting) {
+      this.socketMode = 'native'
+      this.isNativeConnecting = true
+      this.isConnected = false
+      this.isReady = false
+      return
+    }
+
+    if (failed) {
+      const error = statusData.error || new Error('原生 WebSocket 连接关闭')
+      console.error('原生 WebSocket 状态异常:', statusData)
+      this.isNativeConnecting = false
+      this.isConnected = false
+      this.isReady = false
+      this.emit(ERROR_NATIVE_STATES.includes(state) || statusData.error ? 'error' : 'close', error)
+
+      if (this.shouldReconnect) {
+        this.reconnect()
+      }
+    }
+  }
+
   handleMessage(data) {
     switch (data.type) {
       case 'chat':
@@ -499,7 +689,18 @@ class WebSocketService {
   }
 
   send(data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected) {
+    if (this.socketMode === 'native') {
+      if (this.isSocketReady() || isNativeWebSocketConnected()) {
+        sendNativeWebSocket(data)
+        console.log('发送原生 WebSocket 消息:', data)
+        return
+      }
+
+      console.error('原生 WebSocket 未连接，无法发送消息')
+      throw new Error('WebSocket 未连接')
+    }
+
+    if (this.isBrowserSocketOpen() && this.isConnected) {
       this.ws.send(JSON.stringify(data))
       console.log('发送消息:', data)
     } else {
@@ -509,11 +710,11 @@ class WebSocketService {
   }
 
   ensureConnected(url, userInfo, timeout = 8000) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected && this.isReady) {
+    if (this.isSocketReady()) {
       return Promise.resolve()
     }
 
-    const connectUrl = url || import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
+    const connectUrl = url || this.lastUrl || getDefaultWsUrl()
     const connectUserInfo = userInfo || this.userInfo
 
     if (!connectUserInfo) {
@@ -552,7 +753,7 @@ class WebSocketService {
       this.on('ready', handleReady)
       this.on('error', handleError)
 
-      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected && this.isReady) {
+      if (this.isSocketReady()) {
         handleReady()
       }
     })
@@ -591,7 +792,13 @@ class WebSocketService {
     this.reconnectTimer = setTimeout(() => {
       console.log('尝试重新连接 WebSocket...')
       this.reconnectTimer = null
-      const url = import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
+      const url = this.lastUrl || getDefaultWsUrl()
+
+      if (this.socketMode === 'native' && isNativeWebSocketAvailable() && reconnectNativeWebSocket()) {
+        this.isNativeConnecting = true
+        return
+      }
+
       this.connect(url, this.userInfo)
     }, 5000)
   }
@@ -602,19 +809,28 @@ class WebSocketService {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-    if (this.ws && this.isConnected) {
+
+    const shouldSendOffline = this.isConnected && this.isReady
+    if (shouldSendOffline) {
       // 关闭连接前发送下线通知
       this.sendOffline()
-      // 等待一小段时间确保通知发送成功
-      setTimeout(() => {
-        if (this.ws) {
-          this.ws.close()
-          this.ws = null
-          this.isConnected = false
-          this.isReady = false
-        }
-      }, 100)
     }
+
+    // 等待一小段时间确保下线通知发送成功；未 ready 时也要清掉连接。
+    setTimeout(() => {
+      if (this.socketMode === 'native') {
+        closeNativeWebSocket()
+      }
+
+      if (this.ws) {
+        this.ws.close()
+        this.ws = null
+      }
+
+      this.isNativeConnecting = false
+      this.isConnected = false
+      this.isReady = false
+    }, shouldSendOffline ? 100 : 0)
   }
 
   clearMessages() {
@@ -623,7 +839,7 @@ class WebSocketService {
 
   // 发送上线通知
   sendOnline() {
-    if (this.ws && this.isConnected && this.userInfo) {
+    if (this.isConnected && this.isReady && this.userInfo) {
       const onlineMsg = {
         type: 'userOnline',
         payload: {
@@ -632,14 +848,18 @@ class WebSocketService {
           avatar: this.userInfo.avatar
         }
       }
-      this.send(onlineMsg)
-      console.log('发送上线通知:', onlineMsg)
+      try {
+        this.send(onlineMsg)
+        console.log('发送上线通知:', onlineMsg)
+      } catch (error) {
+        console.error('发送上线通知失败:', error)
+      }
     }
   }
 
   // 发送下线通知
   sendOffline() {
-    if (this.ws && this.isConnected && this.userInfo) {
+    if (this.isConnected && this.isReady && this.userInfo) {
       const offlineMsg = {
         type: 'userOffline',
         payload: {
@@ -647,8 +867,12 @@ class WebSocketService {
           username: this.userInfo.username
         }
       }
-      this.send(offlineMsg)
-      console.log('发送下线通知:', offlineMsg)
+      try {
+        this.send(offlineMsg)
+        console.log('发送下线通知:', offlineMsg)
+      } catch (error) {
+        console.error('发送下线通知失败:', error)
+      }
     }
   }
 }
