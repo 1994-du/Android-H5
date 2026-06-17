@@ -242,9 +242,40 @@ const getBase64FromFile = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file)
 })
 
+const getWsConnectOptions = () => ({
+  url: import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws',
+  userInfo: {
+    userId: Number(userStore.id),
+    username: userStore.username,
+    avatar: userStore.avatar
+  }
+})
+
+const ensureChatSocketReady = async ({ silent = false } = {}) => {
+  if (wsService.isConnected && wsService.isReady) {
+    return true
+  }
+
+  const { url, userInfo } = getWsConnectOptions()
+  if (!silent) {
+    showToast('正在恢复连接...')
+  }
+
+  try {
+    await wsService.ensureConnected(url, userInfo)
+    return true
+  } catch (error) {
+    console.error('恢复 WebSocket 失败:', error)
+    if (!silent) {
+      showToast('连接失败，请稍后重试')
+    }
+    return false
+  }
+}
+
 const sendImageMessage = async (imageUrl, source = 'gallery') => {
-  if (!wsService.isConnected || !wsService.isReady) {
-    showToast('正在连接服务，请稍后再试')
+  const isReady = await ensureChatSocketReady()
+  if (!isReady) {
     return
   }
 
@@ -307,9 +338,10 @@ const handleFileInputChange = async (event) => {
   }
 }
 
-const handleMoreActionCompat = (action) => {
+const handleMoreActionCompat = async (action) => {
   const value = action?.value || ''
   if (value === 'camera') {
+    await ensureChatSocketReady({ silent: true })
     if (window.AndroidPhoto && window.AndroidPhoto.openCamera) {
       window.AndroidPhoto.openCamera(callbackId)
     } else {
@@ -319,6 +351,7 @@ const handleMoreActionCompat = (action) => {
   }
 
   if (value === 'gallery') {
+    await ensureChatSocketReady({ silent: true })
     if (window.AndroidPhoto && window.AndroidPhoto.openGallery) {
       window.AndroidPhoto.openGallery(callbackId)
     } else {
@@ -370,13 +403,24 @@ const initWebSocket = () => {
   // 进入聊天页时建立 WebSocket 连接
   if (userStore.token && userStore.id && !wsService.isConnected) {
     console.log('WebSocket未连接，尝试重新连接')
-    const wsUrl = import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
-    const userInfo = {
-      userId: Number(userStore.id),
-      username: userStore.username,
-      avatar: userStore.avatar
-    }
-    wsService.connect(wsUrl, userInfo)
+    const { url, userInfo } = getWsConnectOptions()
+    wsService.connect(url, userInfo)
+  }
+}
+
+const handleAppResume = () => {
+  if (document.visibilityState && document.visibilityState !== 'visible') {
+    return
+  }
+
+  if (userStore.token && userStore.id) {
+    ensureChatSocketReady({ silent: true })
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    handleAppResume()
   }
 }
 
@@ -687,6 +731,9 @@ onMounted(() => {
   wsService.on('userOnline', handleUserOnline)
   wsService.on('userOffline', handleUserOffline)
   window.addEventListener('app-header-action', handleHeaderAction)
+  window.addEventListener('focus', handleAppResume)
+  window.addEventListener('pageshow', handleAppResume)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   window.handlePhotoResult = handlePhotoResult
   window.handlePhotoError = handlePhotoError
   
@@ -704,6 +751,9 @@ onUnmounted(() => {
   wsService.off('userOnline', handleUserOnline)
   wsService.off('userOffline', handleUserOffline)
   window.removeEventListener('app-header-action', handleHeaderAction)
+  window.removeEventListener('focus', handleAppResume)
+  window.removeEventListener('pageshow', handleAppResume)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.handlePhotoResult = null
   window.handlePhotoError = null
   

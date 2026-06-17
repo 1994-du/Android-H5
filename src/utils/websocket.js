@@ -403,9 +403,28 @@ class WebSocketService {
   }
 
   connect(url, userInfo) {
-    if (this.ws && this.isConnected) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected) {
       console.log('WebSocket 已连接，跳过重复连接')
       return
+    }
+
+    if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+      console.log('WebSocket 正在连接，跳过重复连接')
+      return
+    }
+
+    if (this.ws && (
+      this.ws.readyState === WebSocket.CLOSING
+      || this.ws.readyState === WebSocket.CLOSED
+    )) {
+      this.ws = null
+      this.isConnected = false
+      this.isReady = false
+    }
+
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
     }
 
     this.shouldReconnect = true
@@ -480,13 +499,63 @@ class WebSocketService {
   }
 
   send(data) {
-    if (this.ws && this.isConnected) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected) {
       this.ws.send(JSON.stringify(data))
       console.log('发送消息:', data)
     } else {
       console.error('WebSocket 未连接，无法发送消息')
       throw new Error('WebSocket 未连接')
     }
+  }
+
+  ensureConnected(url, userInfo, timeout = 8000) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected && this.isReady) {
+      return Promise.resolve()
+    }
+
+    const connectUrl = url || import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws'
+    const connectUserInfo = userInfo || this.userInfo
+
+    if (!connectUserInfo) {
+      return Promise.reject(new Error('缺少 WebSocket 用户信息'))
+    }
+
+    this.connect(connectUrl, connectUserInfo)
+
+    return new Promise((resolve, reject) => {
+      let timer = null
+
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+        this.off('ready', handleReady)
+        this.off('error', handleError)
+      }
+
+      const handleReady = () => {
+        cleanup()
+        resolve()
+      }
+
+      const handleError = (error) => {
+        cleanup()
+        reject(error || new Error('WebSocket 连接失败'))
+      }
+
+      timer = setTimeout(() => {
+        cleanup()
+        reject(new Error('WebSocket 连接超时'))
+      }, timeout)
+
+      this.on('ready', handleReady)
+      this.on('error', handleError)
+
+      if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected && this.isReady) {
+        handleReady()
+      }
+    })
   }
 
   on(event, callback) {
