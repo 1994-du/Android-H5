@@ -341,20 +341,6 @@ const sendImageMessage = async (imageUrl, source = 'gallery') => {
     }
   })
 
-  wsService.appendMessage({
-    clientMessageId,
-    userId: Number(userStore.id),
-    fromUsername: userStore.username,
-    avatar: userStore.avatar,
-    message: '',
-    content: '',
-    time,
-    image: getImageMessageUrl(imageUrl),
-    imageUrl,
-    type: 'image',
-    messageType: 'image'
-  })
-
   activePanel.value = ''
 }
 
