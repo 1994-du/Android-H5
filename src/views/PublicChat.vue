@@ -179,6 +179,7 @@
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { showImagePreview, showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
+import { getUploadFileUrl, uploadImage } from '@/api/upload'
 import wsService from '@/utils/websocket'
 import {
   openCamera as nativeOpenCamera,
@@ -243,13 +244,6 @@ const getFileInputKind = (target) => {
   return 'gallery'
 }
 
-const getBase64FromFile = (file) => new Promise((resolve, reject) => {
-  const reader = new FileReader()
-  reader.onload = () => resolve(String(reader.result || ''))
-  reader.onerror = () => reject(reader.error || new Error('读取图片失败'))
-  reader.readAsDataURL(file)
-})
-
 const getWsConnectOptions = () => ({
   url: import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws',
   userInfo: {
@@ -278,6 +272,41 @@ const ensureChatSocketReady = async ({ silent = false } = {}) => {
       showToast('连接失败，请稍后重试')
     }
     return false
+  }
+}
+
+const getImageMessageUrl = (imageUrl) => wsService.getAvatarUrl(imageUrl)
+
+const isRemoteImageUrl = (imageSource) => (
+  typeof imageSource === 'string'
+  && /^(https?:|blob:|\/)/.test(imageSource.trim())
+)
+
+const uploadChatImage = async (imageSource, source = 'gallery') => {
+  if (isRemoteImageUrl(imageSource)) {
+    return imageSource.trim()
+  }
+
+  const toast = showToast({
+    type: 'loading',
+    message: '图片上传中...',
+    forbidClick: true,
+    duration: 0
+  })
+
+  try {
+    const response = await uploadImage(imageSource, {
+      filename: `chat-${source}-${Date.now()}.jpg`
+    })
+    const imageUrl = getUploadFileUrl(response)
+
+    if (!imageUrl) {
+      throw new Error('上传接口未返回图片地址')
+    }
+
+    return imageUrl
+  } finally {
+    toast.close()
   }
 }
 
@@ -320,7 +349,7 @@ const sendImageMessage = async (imageUrl, source = 'gallery') => {
     message: '',
     content: '',
     time,
-    image: imageUrl,
+    image: getImageMessageUrl(imageUrl),
     imageUrl,
     type: 'image',
     messageType: 'image'
@@ -335,11 +364,12 @@ const handleFileInputChange = async (event) => {
   if (!file) return
 
   try {
-    const dataUrl = await getBase64FromFile(file)
-    await sendImageMessage(dataUrl, getFileInputKind(target))
+    const source = getFileInputKind(target)
+    const imageUrl = await uploadChatImage(file, source)
+    await sendImageMessage(imageUrl, source)
   } catch (error) {
-    console.error('读取图片失败:', error)
-    showToast('读取图片失败')
+    console.error('发送图片失败:', error)
+    showToast(error.message || '发送图片失败')
   } finally {
     resetFileInput(cameraInputRef)
     resetFileInput(galleryInputRef)
@@ -569,12 +599,8 @@ const handlePhotoResult = async (data) => {
       return
     }
 
-    let dataUrl = rawImage
-    if (!rawImage.startsWith('data:')) {
-      dataUrl = `data:image/jpeg;base64,${rawImage}`
-    }
-
-    await sendImageMessage(dataUrl, 'android')
+    const uploadedImageUrl = await uploadChatImage(rawImage, 'android')
+    await sendImageMessage(uploadedImageUrl, 'android')
   } catch (error) {
     showToast('发送图片失败')
     console.error(error)
