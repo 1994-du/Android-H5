@@ -33,6 +33,16 @@ const DIRECT_IMAGE_FIELDS = [
 const GENERIC_IMAGE_FIELDS = ['fileUrl', 'filePath', 'uri', 'url', 'path', 'src']
 const CONTENT_IMAGE_FIELDS = ['message', 'content', 'text', 'msg', 'body', 'messageText', 'chatContent']
 const NESTED_IMAGE_FIELDS = ['file', 'media', 'attachment', 'attach', 'data', 'extra', 'payload']
+const SENDER_ID_FIELDS = [
+  'fromUserId',
+  'senderId',
+  'senderUserId',
+  'sendUserId',
+  'fromId',
+  'userId',
+  'uid'
+]
+const SENDER_OBJECT_FIELDS = ['fromUser', 'sender', 'user']
 
 const normalizeBoolean = (value) => {
   if (typeof value === 'boolean') return value
@@ -272,6 +282,10 @@ class WebSocketService {
       return true
     }
 
+    if (this.isSameImageMessage(item, messageData)) {
+      return true
+    }
+
     return item.userId === messageData.userId
       && item.message === messageData.message
       && item.rawTime === messageData.rawTime
@@ -288,6 +302,52 @@ class WebSocketService {
       const timeB = b.rawTime ? new Date(b.rawTime).getTime() : 0
       return timeA - timeB
     })
+  }
+
+  getImageIdentity(imageUrl) {
+    const normalizedImageUrl = typeof imageUrl === 'string' ? imageUrl.trim() : ''
+
+    if (!normalizedImageUrl) {
+      return ''
+    }
+
+    try {
+      const parsedUrl = normalizedImageUrl.startsWith('http')
+        ? new URL(normalizedImageUrl)
+        : new URL(normalizedImageUrl.replace(/^\/+/, ''), 'http://local/')
+      return decodeURIComponent(parsedUrl.pathname.split('/').filter(Boolean).pop() || parsedUrl.pathname)
+    } catch (error) {
+      return decodeURIComponent(normalizedImageUrl.split(/[?#]/)[0].split('/').filter(Boolean).pop() || normalizedImageUrl)
+    }
+  }
+
+  getMessageTimeValue(message) {
+    const timestamp = message?.rawTime ? new Date(message.rawTime).getTime() : 0
+    return Number.isNaN(timestamp) ? 0 : timestamp
+  }
+
+  isSameImageMessage(item, messageData) {
+    if (item?.type !== 'image' || messageData?.type !== 'image') {
+      return false
+    }
+
+    const itemImage = this.getImageIdentity(item.sourceImage || item.image)
+    const messageImage = this.getImageIdentity(messageData.sourceImage || messageData.image)
+    if (!itemImage || !messageImage || itemImage !== messageImage) {
+      return false
+    }
+
+    if (item.userId !== null && messageData.userId !== null && item.userId !== messageData.userId) {
+      return false
+    }
+
+    const itemTime = this.getMessageTimeValue(item)
+    const messageTime = this.getMessageTimeValue(messageData)
+    if (!itemTime || !messageTime) {
+      return true
+    }
+
+    return Math.abs(itemTime - messageTime) <= 60 * 1000
   }
 
   preloadAvatar(avatarUrl) {
@@ -404,6 +464,64 @@ class WebSocketService {
     return IMAGE_MESSAGE_TYPES.includes(String(type || '').trim().toLowerCase())
   }
 
+  toNumber(value) {
+    if (value === null || value === undefined || value === '') {
+      return null
+    }
+
+    const numberValue = Number(value)
+    return Number.isFinite(numberValue) ? numberValue : null
+  }
+
+  getSenderId(source) {
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    for (const field of SENDER_ID_FIELDS) {
+      const userId = this.toNumber(source[field])
+      if (userId !== null) {
+        return userId
+      }
+    }
+
+    for (const field of SENDER_OBJECT_FIELDS) {
+      const user = source[field]
+      if (!user || typeof user !== 'object') {
+        continue
+      }
+
+      const userId = this.toNumber(user.id ?? user.userId)
+      if (userId !== null) {
+        return userId
+      }
+    }
+
+    return null
+  }
+
+  getMessageId(source, userId) {
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    const explicitMessageId = source.messageId
+      || source.msgId
+      || source.uuid
+      || source.clientMessageId
+      || source.socketMessageId
+
+    if (explicitMessageId) {
+      return explicitMessageId
+    }
+
+    if (source.id && String(source.id) !== String(userId ?? '')) {
+      return source.id
+    }
+
+    return null
+  }
+
   isImagePath(value) {
     const normalizedValue = typeof value === 'string' ? value.trim() : ''
 
@@ -499,7 +617,17 @@ class WebSocketService {
 
   normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
     const source = payload?.payload && typeof payload.payload === 'object'
-      ? { ...payload.payload, clientMessageId: payload.clientMessageId || payload.payload.clientMessageId }
+      ? {
+        ...payload.payload,
+        id: payload.payload.id ?? payload.id,
+        messageId: payload.payload.messageId ?? payload.messageId,
+        msgId: payload.payload.msgId ?? payload.msgId,
+        uuid: payload.payload.uuid ?? payload.uuid,
+        socketMessageId: payload.id,
+        clientMessageId: payload.clientMessageId || payload.payload.clientMessageId,
+        messageType: payload.payload.messageType || payload.messageType,
+        contentType: payload.payload.contentType || payload.contentType
+      }
       : payload
 
     if (!source) {
@@ -562,11 +690,8 @@ class WebSocketService {
     }
 
     const avatar = source.avatar || source.fromAvatar || source.headImg || source.userAvatar || ''
-    const rawUserId = source.userId ?? source.fromUserId ?? source.senderId ?? source.id ?? null
-    const userId = rawUserId !== null && rawUserId !== undefined && rawUserId !== ''
-      ? Number(rawUserId)
-      : null
-    const sourceMessageId = source.id || source.messageId || source.msgId || source.uuid || source.clientMessageId || null
+    const userId = this.getSenderId(source)
+    const sourceMessageId = this.getMessageId(source, userId)
 
     return {
       id: sourceMessageId || `${normalizedRawTime}-${userId || 'unknown'}-${type}-${index}-${this.messageSeq++}`,
@@ -817,7 +942,7 @@ class WebSocketService {
     switch (data.type) {
       case 'chat':
         console.log('收到聊天消息:', data.payload)
-        this.appendMessage(data.payload, data.type)
+        this.appendMessage(data, data.type)
         this.emit('chat', data.payload)
         break
       case 'chatHistory':
