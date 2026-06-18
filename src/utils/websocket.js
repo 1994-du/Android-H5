@@ -14,6 +14,25 @@ const CONNECTED_NATIVE_STATES = ['open', 'opened', 'connected', 'ready']
 const CONNECTING_NATIVE_STATES = ['connecting', 'reconnecting']
 const CLOSED_NATIVE_STATES = ['close', 'closed', 'closing', 'disconnect', 'disconnected']
 const ERROR_NATIVE_STATES = ['error', 'failed', 'failure']
+const IMAGE_MESSAGE_TYPES = ['image', 'img', 'picture', 'photo', 'pic', '图片']
+const IMAGE_FILE_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?.*)?(#.*)?$/i
+const IMAGE_DATA_PATTERN = /^(data:image\/|blob:)/i
+const IMAGE_RESOURCE_PATH_PATTERN = /^(https?:\/\/[^/]+)?\/?(uploads?|files?|images?|img|static)\//i
+const DIRECT_IMAGE_FIELDS = [
+  'image',
+  'imageUrl',
+  'imagePath',
+  'picture',
+  'pic',
+  'photo',
+  'mediaUrl',
+  'thumbnail',
+  'thumb',
+  'originalUrl'
+]
+const GENERIC_IMAGE_FIELDS = ['fileUrl', 'filePath', 'uri', 'url', 'path', 'src']
+const CONTENT_IMAGE_FIELDS = ['message', 'content', 'text', 'msg', 'body', 'messageText', 'chatContent']
+const NESTED_IMAGE_FIELDS = ['file', 'media', 'attachment', 'attach', 'data', 'extra', 'payload']
 
 const normalizeBoolean = (value) => {
   if (typeof value === 'boolean') return value
@@ -31,6 +50,24 @@ const parseSocketPayload = (payload) => {
     return JSON.parse(payload)
   } catch (error) {
     return payload
+  }
+}
+
+const parseJsonObject = (value) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalizedValue = value.trim()
+  if (!normalizedValue || !['{', '['].includes(normalizedValue[0])) {
+    return null
+  }
+
+  try {
+    const parsedValue = JSON.parse(normalizedValue)
+    return parsedValue && typeof parsedValue === 'object' ? parsedValue : null
+  } catch (error) {
+    return null
   }
 }
 
@@ -299,6 +336,15 @@ class WebSocketService {
         return
       }
 
+      if (messageData.type === 'image') {
+        console.log('聊天历史图片归一化:', {
+          imageField: messageData.imageField,
+          sourceImage: messageData.sourceImage,
+          displayImage: messageData.image,
+          raw: item
+        })
+      }
+
       const existsInBatch = normalizedMessages.some((message) => this.isSameMessage(message, messageData))
       if (!existsInBatch) {
         normalizedMessages.push(messageData)
@@ -354,6 +400,103 @@ class WebSocketService {
     return fullUrl
   }
 
+  isImageMessageType(type) {
+    return IMAGE_MESSAGE_TYPES.includes(String(type || '').trim().toLowerCase())
+  }
+
+  isImagePath(value) {
+    const normalizedValue = typeof value === 'string' ? value.trim() : ''
+
+    if (!normalizedValue) {
+      return false
+    }
+
+    return IMAGE_DATA_PATTERN.test(normalizedValue)
+      || IMAGE_FILE_PATTERN.test(normalizedValue)
+      || IMAGE_RESOURCE_PATH_PATTERN.test(normalizedValue)
+  }
+
+  getStringField(source, fields) {
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    for (const field of fields) {
+      const value = source[field]
+
+      if (typeof value === 'string' && value.trim()) {
+        return {
+          field,
+          value: value.trim()
+        }
+      }
+    }
+
+    return null
+  }
+
+  extractImageSource(source, sourceType, seen = new WeakSet()) {
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    if (seen.has(source)) {
+      return null
+    }
+    seen.add(source)
+
+    const directImage = this.getStringField(source, DIRECT_IMAGE_FIELDS)
+    if (directImage) {
+      return directImage
+    }
+
+    const isImageType = this.isImageMessageType(sourceType)
+    const genericImage = this.getStringField(source, GENERIC_IMAGE_FIELDS)
+    if (genericImage && (isImageType || this.isImagePath(genericImage.value))) {
+      return genericImage
+    }
+
+    for (const field of NESTED_IMAGE_FIELDS) {
+      const value = source[field]
+      const parsedValue = parseJsonObject(value)
+      const nestedSource = parsedValue || (value && typeof value === 'object' ? value : null)
+
+      if (!nestedSource) {
+        continue
+      }
+
+      const nestedImage = this.extractImageSource(nestedSource, sourceType, seen)
+      if (nestedImage) {
+        return {
+          field: `${field}.${nestedImage.field}`,
+          value: nestedImage.value
+        }
+      }
+    }
+
+    const contentImage = this.getStringField(source, CONTENT_IMAGE_FIELDS)
+    if (!contentImage) {
+      return null
+    }
+
+    const parsedContent = parseJsonObject(contentImage.value)
+    if (parsedContent) {
+      const nestedImage = this.extractImageSource(parsedContent, sourceType, seen)
+      if (nestedImage) {
+        return {
+          field: `${contentImage.field}.${nestedImage.field}`,
+          value: nestedImage.value
+        }
+      }
+    }
+
+    if (isImageType || this.isImagePath(contentImage.value)) {
+      return contentImage
+    }
+
+    return null
+  }
+
   normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
     const source = payload?.payload && typeof payload.payload === 'object'
       ? { ...payload.payload, clientMessageId: payload.clientMessageId || payload.payload.clientMessageId }
@@ -390,10 +533,11 @@ class WebSocketService {
       ? new Date().toISOString()
       : parsedRawTime.toISOString()
     const sourceType = source.type || source.messageType || source.contentType || payload?.messageType || payload?.type
-    const image = source.image || source.imageUrl || source.imagePath || source.picture || source.mediaUrl || ''
+    const imageSource = this.extractImageSource(source, sourceType)
+    const image = imageSource?.value || ''
     const type = sourceType === 'card'
       ? 'card'
-      : sourceType === 'image' || image
+      : this.isImageMessageType(sourceType) || image
         ? 'image'
         : fallbackType === 'card'
           ? 'card'
@@ -406,9 +550,12 @@ class WebSocketService {
       ?? source.messageText
       ?? source.chatContent
       ?? ''
-    const message = typeof rawMessage === 'string'
+    const rawMessageText = typeof rawMessage === 'string'
       ? rawMessage
       : String(rawMessage || '')
+    const message = type === 'image' && rawMessageText.trim() === image
+      ? ''
+      : rawMessageText
 
     if (!message && !image) {
       return null
@@ -434,6 +581,8 @@ class WebSocketService {
       userId,
       message,
       image: image ? this.getAvatarUrl(image) : '',
+      sourceImage: image,
+      imageField: imageSource?.field || '',
       avatar: this.getAvatarUrl(avatar),
       time: this.formatTime(rawTime),
       rawTime: normalizedRawTime,

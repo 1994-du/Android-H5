@@ -277,9 +277,14 @@ const ensureChatSocketReady = async ({ silent = false } = {}) => {
 
 const getImageMessageUrl = (imageUrl) => wsService.getAvatarUrl(imageUrl)
 
+const SERVER_RELATIVE_IMAGE_PATTERN = /^\/?(uploads?|files?|images?|img|static)\//i
+
 const isRemoteImageUrl = (imageSource) => (
   typeof imageSource === 'string'
-  && /^(https?:|blob:|\/)/.test(imageSource.trim())
+  && (
+    /^(https?:|blob:)/.test(imageSource.trim())
+    || SERVER_RELATIVE_IMAGE_PATTERN.test(imageSource.trim())
+  )
 )
 
 const uploadChatImage = async (imageSource, source = 'gallery') => {
