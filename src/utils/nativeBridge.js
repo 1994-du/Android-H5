@@ -55,8 +55,8 @@ export const NATIVE_BRIDGE_API = {
   nativeToH5: [
     {
       callback: 'window.handlePhotoResult(data)',
-      payload: '{ callbackId, image | imageBase64 | imageUrl, type }',
-      description: '原生拍照/相册成功后回传图片数据'
+      payload: '{ callbackId, image | imageBase64 | imageUrl, originalUrl, type }',
+      description: '原生拍照/相册成功后回传图片数据；拍照建议优先回传原图 file/content URI 或未压缩原图 base64，不要回传缩略图'
     },
     {
       callback: 'window.handlePhotoError(data)',

@@ -35,7 +35,7 @@
                 :src="msg.image"
                 fit="cover"
                 class="message-image"
-                @click="previewImage(msg.image)"
+                @click="previewImage(msg.previewImage || msg.image)"
               />
               <span v-else>{{ msg.content }}</span>
             </div>
@@ -278,6 +278,13 @@ const ensureChatSocketReady = async ({ silent = false } = {}) => {
 const getImageMessageUrl = (imageUrl) => wsService.getAvatarUrl(imageUrl)
 
 const SERVER_RELATIVE_IMAGE_PATTERN = /^\/?(uploads?|files?|images?|img|static)\//i
+const IMAGE_EXTENSION_MAP = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif'
+}
 
 const isRemoteImageUrl = (imageSource) => (
   typeof imageSource === 'string'
@@ -286,6 +293,14 @@ const isRemoteImageUrl = (imageSource) => (
     || SERVER_RELATIVE_IMAGE_PATTERN.test(imageSource.trim())
   )
 )
+
+const getImageUploadFilename = (imageSource, source = 'gallery') => {
+  const fallbackExt = typeof imageSource === 'string'
+    ? imageSource.match(/^data:(image\/[^;]+);/)?.[1]
+    : imageSource?.type
+  const ext = IMAGE_EXTENSION_MAP[fallbackExt] || 'jpg'
+  return `chat-${source}-${Date.now()}.${ext}`
+}
 
 const uploadChatImage = async (imageSource, source = 'gallery') => {
   if (isRemoteImageUrl(imageSource)) {
@@ -300,8 +315,14 @@ const uploadChatImage = async (imageSource, source = 'gallery') => {
   })
 
   try {
+    const size = imageSource?.size || (typeof imageSource === 'string' ? imageSource.length : 0)
+    console.log('准备上传聊天图片:', {
+      source,
+      type: imageSource?.type || (typeof imageSource === 'string' ? 'base64' : ''),
+      size
+    })
     const response = await uploadImage(imageSource, {
-      filename: `chat-${source}-${Date.now()}.jpg`
+      filename: getImageUploadFilename(imageSource, source)
     })
     const imageUrl = getUploadFileUrl(response)
 
@@ -466,6 +487,7 @@ const messages = computed(() => {
         type: msg.type,
         isSelf: isSelf,
         image: msg.image || '',
+        previewImage: msg.previewImage || msg.image || '',
         avatar: msg.avatar,
         time: msg.time,
         fromUsername: msg.fromUsername

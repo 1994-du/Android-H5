@@ -19,6 +19,12 @@ const IMAGE_FILE_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?.*)?(#.*)?$/i
 const IMAGE_DATA_PATTERN = /^(data:image\/|blob:)/i
 const IMAGE_RESOURCE_PATH_PATTERN = /^(https?:\/\/[^/]+)?\/?(uploads?|files?|images?|img|static)\//i
 const DIRECT_IMAGE_FIELDS = [
+  'originalUrl',
+  'originUrl',
+  'fullUrl',
+  'fullImageUrl',
+  'rawUrl',
+  'sourceUrl',
   'image',
   'imageUrl',
   'imagePath',
@@ -27,9 +33,9 @@ const DIRECT_IMAGE_FIELDS = [
   'photo',
   'mediaUrl',
   'thumbnail',
-  'thumb',
-  'originalUrl'
+  'thumb'
 ]
+const ORIGINAL_IMAGE_FIELDS = ['originalUrl', 'originUrl', 'fullUrl', 'fullImageUrl', 'rawUrl', 'sourceUrl']
 const GENERIC_IMAGE_FIELDS = ['fileUrl', 'filePath', 'uri', 'url', 'path', 'src']
 const CONTENT_IMAGE_FIELDS = ['message', 'content', 'text', 'msg', 'body', 'messageText', 'chatContent']
 const NESTED_IMAGE_FIELDS = ['file', 'media', 'attachment', 'attach', 'data', 'extra', 'payload']
@@ -615,6 +621,15 @@ class WebSocketService {
     return null
   }
 
+  extractPreviewImageSource(source, imageSource, sourceType) {
+    const originalImage = this.getStringField(source, ORIGINAL_IMAGE_FIELDS)
+    if (originalImage) {
+      return originalImage
+    }
+
+    return imageSource || this.extractImageSource(source, sourceType)
+  }
+
   normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
     const source = payload?.payload && typeof payload.payload === 'object'
       ? {
@@ -662,7 +677,9 @@ class WebSocketService {
       : parsedRawTime.toISOString()
     const sourceType = source.type || source.messageType || source.contentType || payload?.messageType || payload?.type
     const imageSource = this.extractImageSource(source, sourceType)
+    const previewImageSource = this.extractPreviewImageSource(source, imageSource, sourceType)
     const image = imageSource?.value || ''
+    const previewImage = previewImageSource?.value || image
     const type = sourceType === 'card'
       ? 'card'
       : this.isImageMessageType(sourceType) || image
@@ -706,8 +723,11 @@ class WebSocketService {
       userId,
       message,
       image: image ? this.getAvatarUrl(image) : '',
+      previewImage: previewImage ? this.getAvatarUrl(previewImage) : '',
       sourceImage: image,
+      sourcePreviewImage: previewImage,
       imageField: imageSource?.field || '',
+      previewImageField: previewImageSource?.field || '',
       avatar: this.getAvatarUrl(avatar),
       time: this.formatTime(rawTime),
       rawTime: normalizedRawTime,
