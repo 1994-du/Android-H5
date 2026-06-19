@@ -15,9 +15,13 @@ const CONNECTING_NATIVE_STATES = ['connecting', 'reconnecting']
 const CLOSED_NATIVE_STATES = ['close', 'closed', 'closing', 'disconnect', 'disconnected']
 const ERROR_NATIVE_STATES = ['error', 'failed', 'failure']
 const IMAGE_MESSAGE_TYPES = ['image', 'img', 'picture', 'photo', 'pic', '图片']
+const VOICE_MESSAGE_TYPES = ['voice', 'audio', 'record', 'sound', '语音']
 const IMAGE_FILE_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif)(\?.*)?(#.*)?$/i
+const VOICE_FILE_PATTERN = /\.(mp3|m4a|aac|wav|ogg|webm|amr)(\?.*)?(#.*)?$/i
 const IMAGE_DATA_PATTERN = /^(data:image\/|blob:)/i
+const VOICE_DATA_PATTERN = /^(data:audio\/|blob:)/i
 const IMAGE_RESOURCE_PATH_PATTERN = /^(https?:\/\/[^/]+)?\/?(uploads?|files?|images?|img|static)\//i
+const VOICE_RESOURCE_PATH_PATTERN = /^(https?:\/\/[^/]+)?\/?(uploads?|files?|audios?|voices?|voice|audio|static)\//i
 const DIRECT_IMAGE_FIELDS = [
   'originalUrl',
   'originUrl',
@@ -36,6 +40,16 @@ const DIRECT_IMAGE_FIELDS = [
   'thumb'
 ]
 const ORIGINAL_IMAGE_FIELDS = ['originalUrl', 'originUrl', 'fullUrl', 'fullImageUrl', 'rawUrl', 'sourceUrl']
+const DIRECT_VOICE_FIELDS = [
+  'voice',
+  'voiceUrl',
+  'audio',
+  'audioUrl',
+  'recordUrl',
+  'soundUrl',
+  'mediaUrl'
+]
+const VOICE_DURATION_FIELDS = ['duration', 'voiceDuration', 'audioDuration', 'recordDuration', 'length']
 const GENERIC_IMAGE_FIELDS = ['fileUrl', 'filePath', 'uri', 'url', 'path', 'src']
 const CONTENT_IMAGE_FIELDS = ['message', 'content', 'text', 'msg', 'body', 'messageText', 'chatContent']
 const NESTED_IMAGE_FIELDS = ['file', 'media', 'attachment', 'attach', 'data', 'extra', 'payload']
@@ -470,6 +484,10 @@ class WebSocketService {
     return IMAGE_MESSAGE_TYPES.includes(String(type || '').trim().toLowerCase())
   }
 
+  isVoiceMessageType(type) {
+    return VOICE_MESSAGE_TYPES.includes(String(type || '').trim().toLowerCase())
+  }
+
   toNumber(value) {
     if (value === null || value === undefined || value === '') {
       return null
@@ -538,6 +556,18 @@ class WebSocketService {
     return IMAGE_DATA_PATTERN.test(normalizedValue)
       || IMAGE_FILE_PATTERN.test(normalizedValue)
       || IMAGE_RESOURCE_PATH_PATTERN.test(normalizedValue)
+  }
+
+  isVoicePath(value) {
+    const normalizedValue = typeof value === 'string' ? value.trim() : ''
+
+    if (!normalizedValue) {
+      return false
+    }
+
+    return VOICE_DATA_PATTERN.test(normalizedValue)
+      || VOICE_FILE_PATTERN.test(normalizedValue)
+      || VOICE_RESOURCE_PATH_PATTERN.test(normalizedValue)
   }
 
   getStringField(source, fields) {
@@ -630,6 +660,83 @@ class WebSocketService {
     return imageSource || this.extractImageSource(source, sourceType)
   }
 
+  extractVoiceSource(source, sourceType, seen = new WeakSet()) {
+    if (!source || typeof source !== 'object') {
+      return null
+    }
+
+    if (seen.has(source)) {
+      return null
+    }
+    seen.add(source)
+
+    const directVoice = this.getStringField(source, DIRECT_VOICE_FIELDS)
+    if (directVoice) {
+      return directVoice
+    }
+
+    const isVoiceType = this.isVoiceMessageType(sourceType)
+    const genericVoice = this.getStringField(source, GENERIC_IMAGE_FIELDS)
+    if (genericVoice && (isVoiceType || this.isVoicePath(genericVoice.value))) {
+      return genericVoice
+    }
+
+    for (const field of NESTED_IMAGE_FIELDS) {
+      const value = source[field]
+      const parsedValue = parseJsonObject(value)
+      const nestedSource = parsedValue || (value && typeof value === 'object' ? value : null)
+
+      if (!nestedSource) {
+        continue
+      }
+
+      const nestedVoice = this.extractVoiceSource(nestedSource, sourceType, seen)
+      if (nestedVoice) {
+        return {
+          field: `${field}.${nestedVoice.field}`,
+          value: nestedVoice.value
+        }
+      }
+    }
+
+    const contentVoice = this.getStringField(source, CONTENT_IMAGE_FIELDS)
+    if (!contentVoice) {
+      return null
+    }
+
+    const parsedContent = parseJsonObject(contentVoice.value)
+    if (parsedContent) {
+      const nestedVoice = this.extractVoiceSource(parsedContent, sourceType, seen)
+      if (nestedVoice) {
+        return {
+          field: `${contentVoice.field}.${nestedVoice.field}`,
+          value: nestedVoice.value
+        }
+      }
+    }
+
+    if (isVoiceType || this.isVoicePath(contentVoice.value)) {
+      return contentVoice
+    }
+
+    return null
+  }
+
+  getVoiceDuration(source) {
+    if (!source || typeof source !== 'object') {
+      return 0
+    }
+
+    for (const field of VOICE_DURATION_FIELDS) {
+      const duration = Number(source[field])
+      if (Number.isFinite(duration) && duration > 0) {
+        return Math.round(duration)
+      }
+    }
+
+    return 0
+  }
+
   normalizeChatMessage(payload, fallbackType = 'chat', index = 0) {
     const source = payload?.payload && typeof payload.payload === 'object'
       ? {
@@ -676,17 +783,21 @@ class WebSocketService {
       ? new Date().toISOString()
       : parsedRawTime.toISOString()
     const sourceType = source.type || source.messageType || source.contentType || payload?.messageType || payload?.type
-    const imageSource = this.extractImageSource(source, sourceType)
+    const voiceSource = this.extractVoiceSource(source, sourceType)
+    const imageSource = this.isVoiceMessageType(sourceType) ? null : this.extractImageSource(source, sourceType)
     const previewImageSource = this.extractPreviewImageSource(source, imageSource, sourceType)
     const image = imageSource?.value || ''
     const previewImage = previewImageSource?.value || image
+    const voice = voiceSource?.value || ''
     const type = sourceType === 'card'
       ? 'card'
       : this.isImageMessageType(sourceType) || image
         ? 'image'
-        : fallbackType === 'card'
-          ? 'card'
-          : 'chat'
+        : this.isVoiceMessageType(sourceType) || voice
+          ? 'voice'
+          : fallbackType === 'card'
+            ? 'card'
+            : 'chat'
     const rawMessage = source.message
       ?? source.content
       ?? source.text
@@ -702,7 +813,7 @@ class WebSocketService {
       ? ''
       : rawMessageText
 
-    if (!message && !image) {
+    if (!message && !image && !voice) {
       return null
     }
 
@@ -724,10 +835,14 @@ class WebSocketService {
       message,
       image: image ? this.getAvatarUrl(image) : '',
       previewImage: previewImage ? this.getAvatarUrl(previewImage) : '',
+      voice: voice ? this.getAvatarUrl(voice) : '',
+      voiceDuration: this.getVoiceDuration(source),
       sourceImage: image,
       sourcePreviewImage: previewImage,
+      sourceVoice: voice,
       imageField: imageSource?.field || '',
       previewImageField: previewImageSource?.field || '',
+      voiceField: voiceSource?.field || '',
       avatar: this.getAvatarUrl(avatar),
       time: this.formatTime(rawTime),
       rawTime: normalizedRawTime,

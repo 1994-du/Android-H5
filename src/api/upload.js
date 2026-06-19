@@ -61,8 +61,16 @@ export const getUploadFileUrl = (response) => {
 
 export const uploadImage = (imageSource, options = {}) => {
   const file = toImageUploadFile(imageSource, options.filename)
+  return uploadFile(file, options)
+}
+
+export const uploadFile = (file, options = {}) => {
   const formData = new FormData()
-  formData.append(options.fieldName || 'file', file)
+  if (options.filename) {
+    formData.append(options.fieldName || 'file', file, options.filename)
+  } else {
+    formData.append(options.fieldName || 'file', file)
+  }
 
   return request.post(options.url || DEFAULT_UPLOAD_URL, formData, {
     headers: {

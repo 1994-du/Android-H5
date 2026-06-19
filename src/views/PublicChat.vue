@@ -29,7 +29,7 @@
           </div>
           <div class="message-content">
             <div class="username" v-if="!msg.isSelf">{{ msg.fromUsername }}</div>
-            <div :class="['bubble', msg.type === 'card' ? 'card-bubble' : '', msg.image ? 'image-bubble' : '']">
+            <div :class="['bubble', msg.type === 'card' ? 'card-bubble' : '', msg.image ? 'image-bubble' : '', msg.voice ? 'voice-bubble' : '']">
               <van-image
                 v-if="msg.image"
                 :src="msg.image"
@@ -37,6 +37,20 @@
                 class="message-image"
                 @click="previewImage(msg.previewImage || msg.image)"
               />
+              <button
+                v-else-if="msg.voice"
+                type="button"
+                class="voice-message"
+                @click="playVoice(msg.voice)"
+              >
+                <van-icon name="volume-o" size="18" />
+                <span class="voice-wave">
+                  <i></i>
+                  <i></i>
+                  <i></i>
+                </span>
+                <span class="voice-duration">{{ msg.voiceDuration || 1 }}''</span>
+              </button>
               <span v-else>{{ msg.content }}</span>
             </div>
             <div class="time">{{ msg.time }}</div>
@@ -79,18 +93,46 @@
         </div>
       </Transition>
 
+      <Transition name="record-fade">
+        <div v-if="isRecording" class="recording-mask">
+          <div class="recording-card">
+            <div class="recording-pulse">
+              <van-icon name="volume-o" size="30" />
+            </div>
+            <div class="recording-time">{{ recordDuration }}''</div>
+            <div class="recording-tip">松开发送，上滑取消</div>
+          </div>
+        </div>
+      </Transition>
+
       <div class="input-area" :style="inputAreaStyle">
         <div class="chat-toolbar">
           <button
             type="button"
-            class="tool-btn emoji-btn"
-            :class="{ active: showEmojiPanel }"
-            @click="toggleEmojiPanel"
+            class="tool-btn voice-toggle-btn"
+            :class="{ active: isVoiceMode }"
+            @click="toggleVoiceMode"
           >
-            <van-icon name="smile-o" size="22" />
+            <van-icon :name="isVoiceMode ? 'edit' : 'volume-o'" size="22" />
           </button>
 
-          <div class="message-input-shell">
+          <button
+            v-if="isVoiceMode"
+            type="button"
+            class="voice-hold-btn"
+            :class="{ recording: isRecording }"
+            @touchstart.prevent="startVoiceRecord"
+            @touchmove.prevent="handleVoiceTouchMove"
+            @touchend.prevent="finishVoiceRecord"
+            @touchcancel.prevent="cancelVoiceRecord"
+            @mousedown.prevent="startVoiceRecord"
+            @mouseup.prevent="finishVoiceRecord"
+            @mouseleave.prevent="cancelVoiceRecord"
+          >
+            {{ isRecording ? '松开发送' : '按住说话' }}
+          </button>
+
+          <div v-else class="message-input-shell">
             <textarea
               ref="textareaRef"
               v-model="inputMessage"
@@ -105,16 +147,24 @@
           </div>
 
           <button
-            v-if="hasInputText"
+            v-if="!isVoiceMode && hasInputText"
             type="button"
-            class="send-text-btn"
+            class="send-text-btn compact"
             @click="sendMessage"
           >
             发送
           </button>
 
           <button
-            v-else
+            type="button"
+            class="tool-btn emoji-btn"
+            :class="{ active: showEmojiPanel }"
+            @click="toggleEmojiPanel"
+          >
+            <van-icon name="smile-o" size="22" />
+          </button>
+
+          <button
             type="button"
             class="tool-btn plus-btn"
             :class="{ active: showMorePanel }"
@@ -179,7 +229,7 @@
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { showImagePreview, showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
-import { getUploadFileUrl, uploadImage } from '@/api/upload'
+import { getUploadFileUrl, uploadFile, uploadImage } from '@/api/upload'
 import wsService from '@/utils/websocket'
 import {
   openCamera as nativeOpenCamera,
@@ -200,8 +250,12 @@ const onlineUsers = ref([])
 const keyboardHeight = ref(0)
 const textareaRef = ref(null)
 const activePanel = ref('')
+const isVoiceMode = ref(false)
+const isRecording = ref(false)
+const recordDuration = ref(0)
 const BASE_COMPOSER_HEIGHT = 72
 const BOTTOM_PANEL_HEIGHT = 220
+const MIN_VOICE_DURATION = 1
 const emojiList = ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🥳', '🤔', '😭', '😡', '👍', '👀', '🙏', '🎉', '❤️', '🔥', '👏', '💪', '😴', '🤝', '✨', '🎈']
 const moreActionList = [
   { title: '拍照', value: 'camera', icon: 'photograph', background: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' },
@@ -217,6 +271,13 @@ const notifyMessage = ref({
 let notifyTimer = null
 let cleanupPhotoHandlers = null
 let cleanupKeyboardHandler = null
+let mediaRecorder = null
+let mediaStream = null
+let recordChunks = []
+let recordStartedAt = 0
+let recordTimer = null
+let shouldCancelRecord = false
+let activeAudio = null
 
 const showEmojiPanel = computed(() => activePanel.value === 'emoji')
 const showMorePanel = computed(() => activePanel.value === 'more')
@@ -302,6 +363,55 @@ const getImageUploadFilename = (imageSource, source = 'gallery') => {
   return `chat-${source}-${Date.now()}.${ext}`
 }
 
+const getAudioExtension = (mimeType = '') => {
+  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'm4a'
+  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3'
+  if (mimeType.includes('ogg')) return 'ogg'
+  if (mimeType.includes('wav')) return 'wav'
+  return 'webm'
+}
+
+const getRecorderMimeType = () => {
+  if (typeof MediaRecorder === 'undefined') {
+    return ''
+  }
+
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/mp4',
+    'audio/webm',
+    'audio/ogg;codecs=opus'
+  ]
+
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || ''
+}
+
+const uploadVoiceFile = async (voiceBlob) => {
+  const toast = showToast({
+    type: 'loading',
+    message: '语音上传中...',
+    forbidClick: true,
+    duration: 0
+  })
+
+  try {
+    const ext = getAudioExtension(voiceBlob.type)
+    const file = new File([voiceBlob], `voice-${Date.now()}.${ext}`, {
+      type: voiceBlob.type || 'audio/webm'
+    })
+    const response = await uploadFile(file)
+    const voiceUrl = getUploadFileUrl(response)
+
+    if (!voiceUrl) {
+      throw new Error('上传接口未返回语音地址')
+    }
+
+    return voiceUrl
+  } finally {
+    toast.close()
+  }
+}
+
 const uploadChatImage = async (imageSource, source = 'gallery') => {
   if (isRemoteImageUrl(imageSource)) {
     return imageSource.trim()
@@ -364,6 +474,41 @@ const sendImageMessage = async (imageUrl, source = 'gallery') => {
       type: 'image',
       messageType: 'image',
       source
+    }
+  })
+
+  activePanel.value = ''
+}
+
+const sendVoiceMessage = async (voiceUrl, duration = 1) => {
+  const isReady = await ensureChatSocketReady()
+  if (!isReady) {
+    return
+  }
+
+  const now = new Date()
+  const hours = now.getHours().toString().padStart(2, '0')
+  const minutes = now.getMinutes().toString().padStart(2, '0')
+  const time = `${hours}:${minutes}`
+  const clientMessageId = `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+  wsService.send({
+    type: 'chat',
+    messageType: 'voice',
+    clientMessageId,
+    payload: {
+      userId: Number(userStore.id),
+      fromUsername: userStore.username,
+      avatar: userStore.avatar,
+      message: '',
+      content: '',
+      time,
+      voice: voiceUrl,
+      voiceUrl,
+      audioUrl: voiceUrl,
+      duration,
+      type: 'voice',
+      messageType: 'voice'
     }
   })
 
@@ -433,6 +578,122 @@ const handleInputChange = () => {
   resizeTextarea()
 }
 
+const toggleVoiceMode = () => {
+  if (isRecording.value) {
+    cancelVoiceRecord()
+  }
+  isVoiceMode.value = !isVoiceMode.value
+  activePanel.value = ''
+  keyboardHeight.value = 0
+  textareaRef.value?.blur()
+}
+
+const cleanupRecorder = () => {
+  if (recordTimer) {
+    clearInterval(recordTimer)
+    recordTimer = null
+  }
+
+  mediaStream?.getTracks().forEach((track) => track.stop())
+  mediaStream = null
+  mediaRecorder = null
+  recordChunks = []
+  isRecording.value = false
+}
+
+const startVoiceRecord = async () => {
+  if (isRecording.value) {
+    return
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    showToast('当前环境不支持录音')
+    return
+  }
+
+  try {
+    activePanel.value = ''
+    keyboardHeight.value = 0
+    shouldCancelRecord = false
+    recordChunks = []
+    recordDuration.value = 0
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const mimeType = getRecorderMimeType()
+    mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined)
+    recordStartedAt = Date.now()
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data?.size > 0) {
+        recordChunks.push(event.data)
+      }
+    }
+
+    mediaRecorder.onstop = async () => {
+      const duration = Math.max(1, Math.round((Date.now() - recordStartedAt) / 1000))
+      const chunks = [...recordChunks]
+      const canceled = shouldCancelRecord
+      const mime = mediaRecorder?.mimeType || chunks[0]?.type || 'audio/webm'
+      cleanupRecorder()
+
+      if (canceled) {
+        showToast('已取消')
+        return
+      }
+
+      if (duration < MIN_VOICE_DURATION || chunks.length === 0) {
+        showToast('说话时间太短')
+        return
+      }
+
+      try {
+        const voiceBlob = new Blob(chunks, { type: mime })
+        const voiceUrl = await uploadVoiceFile(voiceBlob)
+        await sendVoiceMessage(voiceUrl, duration)
+      } catch (error) {
+        console.error('发送语音失败:', error)
+        showToast(error.message || '发送语音失败')
+      }
+    }
+
+    mediaRecorder.start()
+    isRecording.value = true
+    recordTimer = setInterval(() => {
+      recordDuration.value = Math.max(1, Math.round((Date.now() - recordStartedAt) / 1000))
+    }, 300)
+  } catch (error) {
+    cleanupRecorder()
+    console.error('录音启动失败:', error)
+    showToast('无法使用麦克风')
+  }
+}
+
+const handleVoiceTouchMove = (event) => {
+  const touch = event.touches?.[0]
+  if (!touch) return
+  shouldCancelRecord = touch.clientY < window.innerHeight - 180
+}
+
+const finishVoiceRecord = () => {
+  if (!isRecording.value || !mediaRecorder) {
+    return
+  }
+
+  if (mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop()
+  }
+}
+
+const cancelVoiceRecord = () => {
+  if (!isRecording.value || !mediaRecorder) {
+    return
+  }
+
+  shouldCancelRecord = true
+  if (mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop()
+  }
+}
+
 const setKeyboardHeight = (visible, height) => {
   console.log('键盘状态:', { visible, height })
   if (visible && height > 0) {
@@ -465,6 +726,11 @@ const handleAppResume = () => {
 }
 
 const handleVisibilityChange = () => {
+  if (document.visibilityState && document.visibilityState !== 'visible') {
+    cancelVoiceRecord()
+    return
+  }
+
   if (document.visibilityState === 'visible') {
     handleAppResume()
   }
@@ -473,7 +739,7 @@ const handleVisibilityChange = () => {
 const messages = computed(() => {
   const currentUserId = Number(userStore.id)
   return [...wsService.messages]
-    .filter(msg => msg?.image || (typeof msg?.message === 'string' && msg.message.trim()))
+    .filter(msg => msg?.image || msg?.voice || (typeof msg?.message === 'string' && msg.message.trim()))
     .sort((a, b) => {
       const timeA = a.rawTime ? new Date(a.rawTime).getTime() : (a.id || 0)
       const timeB = b.rawTime ? new Date(b.rawTime).getTime() : (b.id || 0)
@@ -488,6 +754,8 @@ const messages = computed(() => {
         isSelf: isSelf,
         image: msg.image || '',
         previewImage: msg.previewImage || msg.image || '',
+        voice: msg.voice || '',
+        voiceDuration: msg.voiceDuration || 0,
         avatar: msg.avatar,
         time: msg.time,
         fromUsername: msg.fromUsername
@@ -675,6 +943,21 @@ const previewImage = (imageUrl) => {
   showImagePreview([imageUrl])
 }
 
+const playVoice = (voiceUrl) => {
+  if (!voiceUrl) return
+
+  if (activeAudio) {
+    activeAudio.pause()
+    activeAudio = null
+  }
+
+  activeAudio = new Audio(voiceUrl)
+  activeAudio.play().catch((error) => {
+    console.error('播放语音失败:', error)
+    showToast('语音播放失败')
+  })
+}
+
 const handleOnlineUsers = (users) => {
   console.log('收到在线用户列表:', users)
   const currentUserId = Number(userStore.id)
@@ -775,6 +1058,11 @@ onUnmounted(() => {
   cleanupKeyboardHandler?.()
   cleanupPhotoHandlers = null
   cleanupKeyboardHandler = null
+  cleanupRecorder()
+  if (activeAudio) {
+    activeAudio.pause()
+    activeAudio = null
+  }
 })
 </script>
 
@@ -858,12 +1146,61 @@ onUnmounted(() => {
   padding: 6px;
 }
 
+.voice-bubble {
+  min-width: 128px;
+  padding: 0;
+}
+
 .message-image {
   display: block;
   width: 180px;
   max-width: 100%;
   border-radius: 8px;
   overflow: hidden;
+}
+
+.voice-message {
+  width: 100%;
+  min-width: 128px;
+  height: 42px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font: inherit;
+}
+
+.voice-wave {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+
+  i {
+    width: 3px;
+    border-radius: 999px;
+    background: currentColor;
+    opacity: 0.72;
+  }
+
+  i:nth-child(1) {
+    height: 8px;
+  }
+
+  i:nth-child(2) {
+    height: 14px;
+  }
+
+  i:nth-child(3) {
+    height: 20px;
+  }
+}
+
+.voice-duration {
+  font-size: 13px;
 }
 
 .hidden-file-input {
@@ -899,19 +1236,21 @@ onUnmounted(() => {
 .chat-toolbar {
   display: flex;
   align-items: flex-end;
-  gap: 10px;
+  gap: 8px;
 }
 
 .tool-btn,
 .send-btn,
-.emoji-item {
+.emoji-item,
+.voice-hold-btn,
+.voice-message {
   border: 0;
   outline: none;
   font: inherit;
 }
 
 .tool-btn {
-  width: 38px;
+  width: 36px;
   height: 38px;
   border-radius: 50%;
   background: transparent;
@@ -924,6 +1263,10 @@ onUnmounted(() => {
   &.active {
     color: #07c160;
   }
+}
+
+.voice-toggle-btn {
+  color: #111827;
 }
 
 .message-input-shell {
@@ -954,6 +1297,25 @@ onUnmounted(() => {
   color: #9ca3af;
 }
 
+.voice-hold-btn {
+  flex: 1;
+  height: 40px;
+  border-radius: 22px;
+  background: #fff;
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+
+  &.recording {
+    background: #e5e7eb;
+    color: #374151;
+  }
+}
+
 .send-btn {
   display: none;
 }
@@ -972,8 +1334,80 @@ onUnmounted(() => {
   box-shadow: 0 10px 22px rgba(109, 94, 211, 0.22);
   transition: transform 0.18s ease, opacity 0.18s ease;
 
+  &.compact {
+    min-width: 52px;
+    padding: 0 12px;
+  }
+
   &:active {
     transform: scale(0.96);
+  }
+}
+
+.recording-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 320;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.recording-card {
+  width: 160px;
+  height: 160px;
+  border-radius: 26px;
+  background: rgba(17, 24, 39, 0.86);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(12px);
+}
+
+.recording-pulse {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(7, 193, 96, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: recordPulse 1s ease-in-out infinite;
+}
+
+.recording-time {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.recording-tip {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.record-fade-enter-active,
+.record-fade-leave-active {
+  transition: opacity 0.16s ease;
+}
+
+.record-fade-enter-from,
+.record-fade-leave-to {
+  opacity: 0;
+}
+
+@keyframes recordPulse {
+  0%,
+  100% {
+    transform: scale(0.94);
+  }
+
+  50% {
+    transform: scale(1.06);
   }
 }
 
