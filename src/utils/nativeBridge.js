@@ -3,6 +3,8 @@ const getBridgeWindow = () => (typeof window === 'undefined' ? null : window)
 const listenerMap = {
   photoResult: new Set(),
   photoError: new Set(),
+  voiceResult: new Set(),
+  voiceError: new Set(),
   keyboard: new Set(),
   nativeWebSocketMessage: new Set(),
   nativeWebSocketStatus: new Set()
@@ -22,6 +24,28 @@ export const NATIVE_BRIDGE_API = {
         method: 'window.AndroidPhoto.openGallery(callbackId)',
         params: 'callbackId: string',
         description: 'H5 调起原生相册，原生完成后回调 window.handlePhotoResult 或 window.handlePhotoError'
+      }
+    ],
+    AndroidVoice: [
+      {
+        method: 'window.AndroidVoice.startRecord(callbackId)',
+        params: 'callbackId: string',
+        description: 'H5 调起原生语音录制，结束后回调 window.handleVoiceResult 或 window.handleVoiceError'
+      },
+      {
+        method: 'window.AndroidVoice.stopRecord()',
+        params: '无',
+        description: 'H5 通知原生结束语音录制'
+      },
+      {
+        method: 'window.AndroidVoice.cancelRecord()',
+        params: '无',
+        description: 'H5 通知原生取消语音录制'
+      },
+      {
+        method: 'window.AndroidVoice.isRecording()',
+        params: '无',
+        description: 'H5 查询原生是否正在录音，可返回 boolean 或 "true"/"false"'
       }
     ],
     AndroidWebSocket: [
@@ -62,6 +86,16 @@ export const NATIVE_BRIDGE_API = {
       callback: 'window.handlePhotoError(data)',
       payload: '{ callbackId, error }',
       description: '原生拍照/相册失败或取消后回传错误信息'
+    },
+    {
+      callback: 'window.handleVoiceResult(data)',
+      payload: '{ callbackId, audio | audioBase64 | audioUrl, type, mimeType, fileName, durationMs }',
+      description: '原生语音录制成功后回传音频数据，H5 再上传到服务器后发送 WebSocket'
+    },
+    {
+      callback: 'window.handleVoiceError(data)',
+      payload: '{ callbackId, error }',
+      description: '原生语音录制失败或取消后回传错误信息'
     },
     {
       callback: 'window.handleKeyboardStatus(visible, height)',
@@ -183,6 +217,15 @@ const ensurePhotoCallbacks = () => {
   })
 }
 
+const ensureVoiceCallbacks = () => {
+  ensureGlobalCallback('handleVoiceResult', (data) => {
+    emitBridgeEvent('voiceResult', parseNativePayload(data))
+  })
+  ensureGlobalCallback('handleVoiceError', (data) => {
+    emitBridgeEvent('voiceError', parseNativePayload(data))
+  })
+}
+
 const ensureKeyboardCallback = () => {
   ensureGlobalCallback('handleKeyboardStatus', (visible, height) => {
     emitBridgeEvent('keyboard', normalizeNativeBoolean(visible), Number(height) || 0)
@@ -227,6 +270,58 @@ export const openGallery = (callbackId) => {
   ensurePhotoCallbacks()
   bridgeWindow.AndroidPhoto.openGallery(callbackId)
   return true
+}
+
+export const isAndroidVoiceAvailable = () => {
+  const bridgeWindow = getBridgeWindow()
+  return Boolean(
+    bridgeWindow?.AndroidVoice
+    && typeof bridgeWindow.AndroidVoice.startRecord === 'function'
+    && typeof bridgeWindow.AndroidVoice.stopRecord === 'function'
+    && typeof bridgeWindow.AndroidVoice.cancelRecord === 'function'
+  )
+}
+
+export const startNativeVoiceRecord = (callbackId) => {
+  const bridgeWindow = getBridgeWindow()
+  if (!bridgeWindow?.AndroidVoice || typeof bridgeWindow.AndroidVoice.startRecord !== 'function') {
+    return false
+  }
+
+  ensureVoiceCallbacks()
+  bridgeWindow.AndroidVoice.startRecord(callbackId)
+  return true
+}
+
+export const stopNativeVoiceRecord = () => {
+  const bridgeWindow = getBridgeWindow()
+  if (!bridgeWindow?.AndroidVoice || typeof bridgeWindow.AndroidVoice.stopRecord !== 'function') {
+    return false
+  }
+
+  ensureVoiceCallbacks()
+  bridgeWindow.AndroidVoice.stopRecord()
+  return true
+}
+
+export const cancelNativeVoiceRecord = () => {
+  const bridgeWindow = getBridgeWindow()
+  if (!bridgeWindow?.AndroidVoice || typeof bridgeWindow.AndroidVoice.cancelRecord !== 'function') {
+    return false
+  }
+
+  ensureVoiceCallbacks()
+  bridgeWindow.AndroidVoice.cancelRecord()
+  return true
+}
+
+export const isNativeVoiceRecording = () => {
+  const bridgeWindow = getBridgeWindow()
+  if (!bridgeWindow?.AndroidVoice || typeof bridgeWindow.AndroidVoice.isRecording !== 'function') {
+    return false
+  }
+
+  return normalizeNativeBoolean(bridgeWindow.AndroidVoice.isRecording())
 }
 
 export const isNativeWebSocketAvailable = () => {
@@ -302,6 +397,19 @@ export const registerPhotoHandlers = ({ onResult, onError } = {}) => {
   }
 }
 
+export const registerVoiceHandlers = ({ onResult, onError } = {}) => {
+  ensureVoiceCallbacks()
+
+  const cleanups = [
+    addBridgeListener('voiceResult', onResult),
+    addBridgeListener('voiceError', onError)
+  ]
+
+  return () => {
+    cleanups.forEach((cleanup) => cleanup())
+  }
+}
+
 export const registerKeyboardHandler = (handler) => {
   ensureKeyboardCallback()
   return addBridgeListener('keyboard', handler)
@@ -325,6 +433,11 @@ const nativeBridge = {
   isAndroidPhotoAvailable,
   openCamera,
   openGallery,
+  isAndroidVoiceAvailable,
+  startNativeVoiceRecord,
+  stopNativeVoiceRecord,
+  cancelNativeVoiceRecord,
+  isNativeVoiceRecording,
   isNativeWebSocketAvailable,
   connectNativeWebSocket,
   sendNativeWebSocket,
@@ -332,6 +445,7 @@ const nativeBridge = {
   reconnectNativeWebSocket,
   isNativeWebSocketConnected,
   registerPhotoHandlers,
+  registerVoiceHandlers,
   registerKeyboardHandler,
   registerNativeWebSocketHandlers
 }

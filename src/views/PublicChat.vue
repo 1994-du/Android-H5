@@ -234,8 +234,13 @@ import wsService from '@/utils/websocket'
 import {
   openCamera as nativeOpenCamera,
   openGallery as nativeOpenGallery,
+  startNativeVoiceRecord,
+  stopNativeVoiceRecord,
+  cancelNativeVoiceRecord,
+  isAndroidVoiceAvailable,
   registerKeyboardHandler,
-  registerPhotoHandlers
+  registerPhotoHandlers,
+  registerVoiceHandlers
 } from '@/utils/nativeBridge'
 
 const userStore = useUserStore()
@@ -270,10 +275,8 @@ const notifyMessage = ref({
 
 let notifyTimer = null
 let cleanupPhotoHandlers = null
+let cleanupVoiceHandlers = null
 let cleanupKeyboardHandler = null
-let mediaRecorder = null
-let mediaStream = null
-let recordChunks = []
 let recordStartedAt = 0
 let recordTimer = null
 let shouldCancelRecord = false
@@ -363,30 +366,19 @@ const getImageUploadFilename = (imageSource, source = 'gallery') => {
   return `chat-${source}-${Date.now()}.${ext}`
 }
 
-const getAudioExtension = (mimeType = '') => {
-  if (mimeType.includes('mp4') || mimeType.includes('m4a')) return 'm4a'
-  if (mimeType.includes('mpeg') || mimeType.includes('mp3')) return 'mp3'
-  if (mimeType.includes('ogg')) return 'ogg'
-  if (mimeType.includes('wav')) return 'wav'
+const getVoiceFileExtension = (mimeType = '', fileName = '') => {
+  const lowerMime = String(mimeType || '').toLowerCase()
+  const lowerFileName = String(fileName || '').toLowerCase()
+
+  if (lowerFileName.endsWith('.m4a') || lowerMime.includes('mp4') || lowerMime.includes('m4a')) return 'm4a'
+  if (lowerFileName.endsWith('.mp3') || lowerMime.includes('mpeg') || lowerMime.includes('mp3')) return 'mp3'
+  if (lowerFileName.endsWith('.ogg') || lowerMime.includes('ogg')) return 'ogg'
+  if (lowerFileName.endsWith('.wav') || lowerMime.includes('wav')) return 'wav'
+  if (lowerFileName.endsWith('.aac') || lowerMime.includes('aac')) return 'aac'
   return 'webm'
 }
 
-const getRecorderMimeType = () => {
-  if (typeof MediaRecorder === 'undefined') {
-    return ''
-  }
-
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/mp4',
-    'audio/webm',
-    'audio/ogg;codecs=opus'
-  ]
-
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || ''
-}
-
-const uploadVoiceFile = async (voiceBlob) => {
+const uploadVoiceFile = async (voiceSource, fileName = '', mimeType = '') => {
   const toast = showToast({
     type: 'loading',
     message: '语音上传中...',
@@ -395,10 +387,54 @@ const uploadVoiceFile = async (voiceBlob) => {
   })
 
   try {
-    const ext = getAudioExtension(voiceBlob.type)
-    const file = new File([voiceBlob], `voice-${Date.now()}.${ext}`, {
-      type: voiceBlob.type || 'audio/webm'
-    })
+    let file = null
+
+    if (typeof File !== 'undefined' && voiceSource instanceof File) {
+      file = voiceSource
+    } else if (typeof Blob !== 'undefined' && voiceSource instanceof Blob) {
+      const ext = getVoiceFileExtension(voiceSource.type, fileName)
+      file = new File([voiceSource], fileName || `voice-${Date.now()}.${ext}`, {
+        type: voiceSource.type || mimeType || 'audio/webm'
+      })
+    } else if (typeof voiceSource === 'string') {
+      const trimmed = voiceSource.trim()
+      if (!trimmed) {
+        throw new Error('语音数据为空')
+      }
+
+      if (/^data:audio\//i.test(trimmed)) {
+        const [header = '', base64 = ''] = trimmed.split(',')
+        const voiceMime = header.match(/:(.*?);/)?.[1] || mimeType || 'audio/webm'
+        const binary = atob(base64)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        const ext = getVoiceFileExtension(voiceMime, fileName)
+        file = new File([bytes], fileName || `voice-${Date.now()}.${ext}`, { type: voiceMime })
+      } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('blob:') || trimmed.startsWith('/')) {
+        const response = await fetch(trimmed)
+        const blob = await response.blob()
+        const ext = getVoiceFileExtension(blob.type || mimeType, fileName)
+        file = new File([blob], fileName || `voice-${Date.now()}.${ext}`, {
+          type: blob.type || mimeType || 'audio/webm'
+        })
+      } else {
+        const voiceMime = mimeType || 'audio/webm'
+        const ext = getVoiceFileExtension(voiceMime, fileName)
+        const binary = atob(trimmed)
+        const bytes = new Uint8Array(binary.length)
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index)
+        }
+        file = new File([bytes], fileName || `voice-${Date.now()}.${ext}`, { type: voiceMime })
+      }
+    }
+
+    if (!file) {
+      throw new Error('语音数据格式不支持')
+    }
+
     const response = await uploadFile(file)
     const voiceUrl = getUploadFileUrl(response)
 
@@ -594,10 +630,6 @@ const cleanupRecorder = () => {
     recordTimer = null
   }
 
-  mediaStream?.getTracks().forEach((track) => track.stop())
-  mediaStream = null
-  mediaRecorder = null
-  recordChunks = []
   isRecording.value = false
 }
 
@@ -606,8 +638,8 @@ const startVoiceRecord = async () => {
     return
   }
 
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-    showToast('当前环境不支持录音')
+  if (!isAndroidVoiceAvailable()) {
+    showToast('当前环境不支持原生语音')
     return
   }
 
@@ -615,55 +647,24 @@ const startVoiceRecord = async () => {
     activePanel.value = ''
     keyboardHeight.value = 0
     shouldCancelRecord = false
-    recordChunks = []
     recordDuration.value = 0
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    const mimeType = getRecorderMimeType()
-    mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined)
     recordStartedAt = Date.now()
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data?.size > 0) {
-        recordChunks.push(event.data)
-      }
-    }
-
-    mediaRecorder.onstop = async () => {
-      const duration = Math.max(1, Math.round((Date.now() - recordStartedAt) / 1000))
-      const chunks = [...recordChunks]
-      const canceled = shouldCancelRecord
-      const mime = mediaRecorder?.mimeType || chunks[0]?.type || 'audio/webm'
+    const started = startNativeVoiceRecord(callbackId)
+    if (!started) {
+      showToast('当前环境不支持原生语音')
       cleanupRecorder()
-
-      if (canceled) {
-        showToast('已取消')
-        return
-      }
-
-      if (duration < MIN_VOICE_DURATION || chunks.length === 0) {
-        showToast('说话时间太短')
-        return
-      }
-
-      try {
-        const voiceBlob = new Blob(chunks, { type: mime })
-        const voiceUrl = await uploadVoiceFile(voiceBlob)
-        await sendVoiceMessage(voiceUrl, duration)
-      } catch (error) {
-        console.error('发送语音失败:', error)
-        showToast(error.message || '发送语音失败')
-      }
+      return
     }
 
-    mediaRecorder.start()
     isRecording.value = true
     recordTimer = setInterval(() => {
       recordDuration.value = Math.max(1, Math.round((Date.now() - recordStartedAt) / 1000))
     }, 300)
   } catch (error) {
     cleanupRecorder()
-    console.error('录音启动失败:', error)
-    showToast('无法使用麦克风')
+    console.error('语音启动失败:', error)
+    showToast('无法使用语音功能')
   }
 }
 
@@ -674,24 +675,20 @@ const handleVoiceTouchMove = (event) => {
 }
 
 const finishVoiceRecord = () => {
-  if (!isRecording.value || !mediaRecorder) {
+  if (!isRecording.value) {
     return
   }
 
-  if (mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
-  }
+  stopNativeVoiceRecord()
 }
 
 const cancelVoiceRecord = () => {
-  if (!isRecording.value || !mediaRecorder) {
+  if (!isRecording.value) {
     return
   }
 
   shouldCancelRecord = true
-  if (mediaRecorder.state !== 'inactive') {
-    mediaRecorder.stop()
-  }
+  cancelNativeVoiceRecord()
 }
 
 const setKeyboardHeight = (visible, height) => {
@@ -894,6 +891,62 @@ const handlePhotoError = (data) => {
   }
 }
 
+const handleVoiceResult = async (data) => {
+  try {
+    const {
+      callbackId: id,
+      audio,
+      audioBase64,
+      audioUrl,
+      type: voiceType,
+      mimeType,
+      fileName,
+      durationMs,
+      duration
+    } = data || {}
+
+    if (id !== callbackId) return
+
+    const canceled = shouldCancelRecord
+    cleanupRecorder()
+
+    if (canceled) {
+      showToast('已取消')
+      return
+    }
+
+    const durationValue = Math.max(
+      1,
+      Math.round((Number(durationMs || duration || 0) / 1000) || ((Date.now() - recordStartedAt) / 1000))
+    )
+
+    if (durationValue < MIN_VOICE_DURATION) {
+      showToast('说话时间太短')
+      return
+    }
+
+    const rawAudio = audio || audioBase64 || audioUrl
+    if (!rawAudio) {
+      showToast('语音数据为空')
+      return
+    }
+
+    const uploadedVoiceUrl = await uploadVoiceFile(rawAudio, fileName, mimeType || voiceType)
+    await sendVoiceMessage(uploadedVoiceUrl, durationValue)
+  } catch (error) {
+    console.error('发送语音失败:', error)
+    showToast(error.message || '发送语音失败')
+  }
+}
+
+const handleVoiceError = (data) => {
+  const { callbackId: id, error } = data || {}
+  if (id === callbackId) {
+    cleanupRecorder()
+    showToast(error || '语音录制失败')
+  }
+}
+
 const sendMessage = () => {
   if (!inputMessage.value.trim()) return
   
@@ -1037,6 +1090,10 @@ onMounted(() => {
     onResult: handlePhotoResult,
     onError: handlePhotoError
   })
+  cleanupVoiceHandlers = registerVoiceHandlers({
+    onResult: handleVoiceResult,
+    onError: handleVoiceError
+  })
   cleanupKeyboardHandler = registerKeyboardHandler((visible, height) => {
     console.log('输入法状态:', { visible, height })
     setKeyboardHeight(visible, height)
@@ -1055,8 +1112,10 @@ onUnmounted(() => {
   window.removeEventListener('pageshow', handleAppResume)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   cleanupPhotoHandlers?.()
+  cleanupVoiceHandlers?.()
   cleanupKeyboardHandler?.()
   cleanupPhotoHandlers = null
+  cleanupVoiceHandlers = null
   cleanupKeyboardHandler = null
   cleanupRecorder()
   if (activeAudio) {
