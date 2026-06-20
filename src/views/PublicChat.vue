@@ -120,16 +120,21 @@
             v-if="isVoiceMode"
             type="button"
             class="voice-hold-btn"
-            :class="{ recording: isRecording }"
-            @touchstart.prevent="startVoiceRecord"
+            :class="{ recording: isRecording, processing: isVoiceProcessing }"
+            :disabled="isVoiceProcessing"
+            @touchstart.prevent="startVoiceRecord($event)"
             @touchmove.prevent="handleVoiceTouchMove"
             @touchend.prevent="finishVoiceRecord"
             @touchcancel.prevent="cancelVoiceRecord"
-            @mousedown.prevent="startVoiceRecord"
+            @pointerdown.prevent="startVoiceRecord($event)"
+            @pointermove.prevent="handleVoiceTouchMove"
+            @pointerup.prevent="finishVoiceRecord"
+            @pointercancel.prevent="cancelVoiceRecord"
+            @mousedown.prevent="startVoiceRecord($event)"
             @mouseup.prevent="finishVoiceRecord"
             @mouseleave.prevent="cancelVoiceRecord"
           >
-            {{ isRecording ? '松开发送' : '按住说话' }}
+            {{ isVoiceProcessing ? '正在发送' : isRecording ? '松开发送' : '按住说话' }}
           </button>
 
           <div v-else class="message-input-shell">
@@ -257,6 +262,7 @@ const textareaRef = ref(null)
 const activePanel = ref('')
 const isVoiceMode = ref(false)
 const isRecording = ref(false)
+const isVoiceProcessing = ref(false)
 const recordDuration = ref(0)
 const BASE_COMPOSER_HEIGHT = 72
 const BOTTOM_PANEL_HEIGHT = 220
@@ -277,14 +283,55 @@ let notifyTimer = null
 let cleanupPhotoHandlers = null
 let cleanupVoiceHandlers = null
 let cleanupKeyboardHandler = null
+let cleanupVoiceReleaseHandlers = null
 let recordStartedAt = 0
 let recordTimer = null
 let shouldCancelRecord = false
+let currentVoiceCallbackId = ''
 let activeAudio = null
 
 const showEmojiPanel = computed(() => activePanel.value === 'emoji')
 const showMorePanel = computed(() => activePanel.value === 'more')
 const hasInputText = computed(() => inputMessage.value.trim().length > 0)
+
+const createVoiceCallbackId = () => `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const attachVoiceReleaseHandlers = () => {
+  cleanupVoiceReleaseHandlers?.()
+
+  const handleVoiceRelease = (event) => {
+    if (!isRecording.value && !isVoiceProcessing.value) {
+      return
+    }
+
+    if (event?.type === 'touchcancel' || event?.type === 'pointercancel') {
+      cancelVoiceRecord()
+      return
+    }
+
+    if (shouldCancelRecord) {
+      cancelVoiceRecord()
+      return
+    }
+
+    finishVoiceRecord()
+  }
+
+  const options = { capture: true, passive: false }
+  const target = document
+  const eventTypes = ['pointerup', 'pointercancel', 'touchend', 'touchcancel', 'mouseup']
+
+  eventTypes.forEach((eventType) => {
+    target.addEventListener(eventType, handleVoiceRelease, options)
+  })
+
+  cleanupVoiceReleaseHandlers = () => {
+    eventTypes.forEach((eventType) => {
+      target.removeEventListener(eventType, handleVoiceRelease, options)
+    })
+    cleanupVoiceReleaseHandlers = null
+  }
+}
 
 const showUserNotify = (text, background = '#07c160') => {
   if (notifyTimer) {
@@ -631,10 +678,14 @@ const cleanupRecorder = () => {
   }
 
   isRecording.value = false
+  isVoiceProcessing.value = false
+  currentVoiceCallbackId = ''
+  cleanupVoiceReleaseHandlers?.()
+  cleanupVoiceReleaseHandlers = null
 }
 
-const startVoiceRecord = async () => {
-  if (isRecording.value) {
+const startVoiceRecord = async (event) => {
+  if (isRecording.value || isVoiceProcessing.value) {
     return
   }
 
@@ -648,9 +699,22 @@ const startVoiceRecord = async () => {
     keyboardHeight.value = 0
     shouldCancelRecord = false
     recordDuration.value = 0
+    isVoiceProcessing.value = false
+    currentVoiceCallbackId = createVoiceCallbackId()
     recordStartedAt = Date.now()
 
-    const started = startNativeVoiceRecord(callbackId)
+    const pointerTarget = event?.currentTarget
+    if (pointerTarget?.setPointerCapture && event?.pointerId !== undefined && event?.pointerId !== null) {
+      try {
+        pointerTarget.setPointerCapture(event.pointerId)
+      } catch (captureError) {
+        console.warn('语音指针捕获失败:', captureError)
+      }
+    }
+
+    attachVoiceReleaseHandlers()
+
+    const started = startNativeVoiceRecord(currentVoiceCallbackId)
     if (!started) {
       showToast('当前环境不支持原生语音')
       cleanupRecorder()
@@ -675,20 +739,43 @@ const handleVoiceTouchMove = (event) => {
 }
 
 const finishVoiceRecord = () => {
-  if (!isRecording.value) {
+  if (!isRecording.value || isVoiceProcessing.value) {
     return
   }
 
-  stopNativeVoiceRecord()
+  isRecording.value = false
+  isVoiceProcessing.value = true
+
+  if (recordTimer) {
+    clearInterval(recordTimer)
+    recordTimer = null
+  }
+
+  if (!stopNativeVoiceRecord()) {
+    isVoiceProcessing.value = false
+    showToast('当前环境不支持原生语音')
+    cleanupRecorder()
+  }
 }
 
 const cancelVoiceRecord = () => {
-  if (!isRecording.value) {
+  if (!isRecording.value && !isVoiceProcessing.value) {
     return
   }
 
   shouldCancelRecord = true
-  cancelNativeVoiceRecord()
+  isRecording.value = false
+  isVoiceProcessing.value = true
+
+  if (recordTimer) {
+    clearInterval(recordTimer)
+    recordTimer = null
+  }
+
+  if (!cancelNativeVoiceRecord()) {
+    isVoiceProcessing.value = false
+    cleanupRecorder()
+  }
 }
 
 const setKeyboardHeight = (visible, height) => {
@@ -905,12 +992,12 @@ const handleVoiceResult = async (data) => {
       duration
     } = data || {}
 
-    if (id !== callbackId) return
+    if (id && id !== currentVoiceCallbackId) return
 
     const canceled = shouldCancelRecord
-    cleanupRecorder()
 
     if (canceled) {
+      cleanupRecorder()
       showToast('已取消')
       return
     }
@@ -933,7 +1020,9 @@ const handleVoiceResult = async (data) => {
 
     const uploadedVoiceUrl = await uploadVoiceFile(rawAudio, fileName, mimeType || voiceType)
     await sendVoiceMessage(uploadedVoiceUrl, durationValue)
+    cleanupRecorder()
   } catch (error) {
+    cleanupRecorder()
     console.error('发送语音失败:', error)
     showToast(error.message || '发送语音失败')
   }
@@ -941,7 +1030,7 @@ const handleVoiceResult = async (data) => {
 
 const handleVoiceError = (data) => {
   const { callbackId: id, error } = data || {}
-  if (id === callbackId) {
+  if (!id || id === currentVoiceCallbackId) {
     cleanupRecorder()
     showToast(error || '语音录制失败')
   }
