@@ -1,49 +1,51 @@
 <template>
-  <van-tabbar v-model="active" :route="true">
-    <van-tabbar-item icon="chat-o" to="/public-chat">
-      公共聊天
-      <van-badge v-if="unreadCount > 0" :content="unreadCount" class="message-badge" />
-    </van-tabbar-item>
-    <van-tabbar-item icon="records-o" to="/nine-ball">
-      台球
-    </van-tabbar-item>
-    <van-tabbar-item icon="user-o" to="/about">
-      我的
+  <van-tabbar :model-value="active" :route="true">
+    <van-tabbar-item
+      v-for="tab in tabItems"
+      :key="tab.path"
+      :name="tab.path"
+      :icon="tab.icon"
+      :to="tab.path"
+    >
+      {{ tab.title }}
+      <van-badge
+        v-if="tab.name === 'PublicChat' && unreadCount > 0"
+        :content="unreadCount"
+        class="message-badge"
+      />
     </van-tabbar-item>
   </van-tabbar>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { useUserStore } from '@/stores/user'
+import { buildDynamicRoutesFromMenus, getDefaultDynamicRoutes } from '@/router/routes'
 
 const route = useRoute()
-const router = useRouter()
+const userStore = useUserStore()
 
-const active = ref(0)
 const unreadCount = ref(0)
+const active = computed(() => route.path)
 
-const updateActiveTab = () => {
-  const path = route.path
-  if (path === '/public-chat') {
-    active.value = 0
-  } else if (path === '/nine-ball') {
-    active.value = 1
-  } else if (path === '/about') {
-    active.value = 2
-  }
+const getTabRoutes = () => {
+  const routes = buildDynamicRoutesFromMenus(userStore.menus)
+    .filter((item) => item.meta?.showTabbar)
+
+  return routes.length > 0
+    ? routes
+    : getDefaultDynamicRoutes().filter((item) => item.meta?.showTabbar)
 }
 
-let removeAfterEachHook = null
-
-onMounted(() => {
-  updateActiveTab()
-  removeAfterEachHook = router.afterEach(updateActiveTab)
-})
-
-onUnmounted(() => {
-  removeAfterEachHook?.()
-})
+const tabItems = computed(() => getTabRoutes()
+  .sort((a, b) => (a.meta?.tabbarOrder || 0) - (b.meta?.tabbarOrder || 0))
+  .map((item) => ({
+    name: item.name,
+    path: item.path,
+    title: item.meta?.title || '',
+    icon: item.meta?.tabbarIcon || 'apps-o'
+  })))
 </script>
 
 <style scoped lang="less">

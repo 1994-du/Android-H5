@@ -17,7 +17,20 @@
         />
       </template>
     </DxxHeader>
-    <router-view />
+    <router-view v-slot="{ Component, route }">
+      <keep-alive>
+        <component
+          :is="Component"
+          v-if="route.meta.keepAlive"
+          :key="route.name || route.path"
+        />
+      </keep-alive>
+      <component
+        :is="Component"
+        v-if="!route.meta.keepAlive"
+        :key="route.name || route.path"
+      />
+    </router-view>
     <DxxTabbar v-if="showTabbar" />
   </div>
 </template>

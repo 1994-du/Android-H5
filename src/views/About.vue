@@ -42,22 +42,16 @@
 </template>
 
 <script setup>
-import { ref,computed,onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import { useUserStore } from '@/stores/user'
+import wsService from '@/utils/websocket'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-const getAvatarUrl = (avatar) => {
-  if (!avatar) return 'https://fastly.jsdelivr.net/npm/@vant/assets/cat.jpeg'
-  if (avatar.startsWith('http')) return avatar
-  const baseUrl = import.meta.env.VITE_PROXY || ''
-  return baseUrl.replace(/\/$/, '') + avatar
-}
-
-const avatarUrl = computed(() => getAvatarUrl(userStore.avatar))
+const avatarUrl = computed(() => wsService.getAvatarUrl(userStore.avatar))
 
 const handleLogout = async () => {
   try {

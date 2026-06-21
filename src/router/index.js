@@ -1,38 +1,120 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import routes from './routes'
+import {
+  baseRoutes,
+  buildDynamicRoutesFromMenus,
+  getDynamicRouteByPath
+} from './routes'
+import { useUserStore } from '@/stores/user'
 import { getToken } from '@/utils/token'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.VITE_PROJECT_URL),
-  routes
+  routes: baseRoutes
 })
 
-router.beforeEach((to, from, next) => {
+const dynamicRouteNames = new Set()
+let dynamicRoutesReady = false
+let dynamicRoutesKey = ''
+
+const getMenusKey = (menus) => {
+  try {
+    return JSON.stringify(Array.isArray(menus) ? menus : [])
+  } catch (error) {
+    return String(Date.now())
+  }
+}
+
+const addDynamicRoute = (route) => {
+  if (!route?.name || router.hasRoute(route.name)) {
+    return false
+  }
+
+  router.addRoute(route)
+  dynamicRouteNames.add(route.name)
+  return true
+}
+
+const removeDynamicRoutes = () => {
+  dynamicRouteNames.forEach((routeName) => {
+    if (router.hasRoute(routeName)) {
+      router.removeRoute(routeName)
+    }
+  })
+  dynamicRouteNames.clear()
+  dynamicRoutesReady = false
+  dynamicRoutesKey = ''
+}
+
+const ensureDynamicRoutes = (menus) => {
+  const nextKey = getMenusKey(menus)
+
+  if (dynamicRoutesReady && dynamicRoutesKey === nextKey) {
+    return false
+  }
+
+  removeDynamicRoutes()
+  buildDynamicRoutesFromMenus(menus).forEach(addDynamicRoute)
+  dynamicRoutesReady = true
+  dynamicRoutesKey = nextKey
+  return true
+}
+
+const ensureTargetRoute = (path) => {
+  const route = getDynamicRouteByPath(path)
+  return addDynamicRoute(route)
+}
+
+const replaceCurrentRoute = (to) => ({
+  path: to.path,
+  query: to.query,
+  hash: to.hash,
+  replace: true
+})
+
+router.beforeEach((to) => {
   if (to.meta.title) {
     document.title = to.meta.title
   }
-  
+
   const hasToken = getToken()
-  
-  // 让选人页面不需要登录就能访问
-  if (to.path === '/user-select') {
-    next()
-    return
+
+  if (!hasToken) {
+    removeDynamicRoutes()
+
+    if (to.meta.public) {
+      return true
+    }
+
+    return {
+      path: '/login',
+      replace: true
+    }
   }
-  
+
+  const userStore = useUserStore()
+  ensureDynamicRoutes(userStore.menus)
+
   if (to.path === '/login') {
-    if (hasToken) {
-      next('/public-chat')
-    } else {
-      next()
-    }
-  } else {
-    if (hasToken) {
-      next()
-    } else {
-      next('/login')
+    return {
+      path: '/public-chat',
+      replace: true
     }
   }
+
+  if (!to.matched.length) {
+    const targetAdded = ensureTargetRoute(to.path)
+
+    if (targetAdded || router.resolve(to.fullPath).matched.length) {
+      return replaceCurrentRoute(to)
+    }
+
+    return {
+      path: '/public-chat',
+      replace: true
+    }
+  }
+
+  return true
 })
 
 export default router
