@@ -234,7 +234,7 @@
 import { ref, nextTick, onMounted, onUnmounted, computed, watch } from 'vue'
 import { showImagePreview, showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
-import { getUploadFileUrl, uploadFile, uploadImage } from '@/api/upload'
+import { getUploadFileUrl, getUploadVoiceUrl, uploadFile, uploadImage } from '@/api/upload'
 import wsService from '@/utils/websocket'
 import {
   openCamera as nativeOpenCamera,
@@ -487,8 +487,10 @@ const uploadVoiceFile = async (voiceSource, fileName = '', mimeType = '') => {
       throw new Error('语音数据格式不支持')
     }
 
-    const response = await uploadFile(file)
-    const voiceUrl = getUploadFileUrl(response)
+    const response = await uploadFile(file, {
+      text: fileName || ''
+    })
+    const voiceUrl = getUploadVoiceUrl(response)
 
     if (!voiceUrl) {
       throw new Error('上传接口未返回语音地址')
