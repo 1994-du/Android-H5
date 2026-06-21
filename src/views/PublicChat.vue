@@ -296,11 +296,16 @@ const hasInputText = computed(() => inputMessage.value.trim().length > 0)
 
 const createVoiceCallbackId = () => `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
-const attachVoiceReleaseHandlers = () => {
+const detachVoiceReleaseHandlers = () => {
   cleanupVoiceReleaseHandlers?.()
+  cleanupVoiceReleaseHandlers = null
+}
+
+const attachVoiceReleaseHandlers = () => {
+  detachVoiceReleaseHandlers()
 
   const handleVoiceRelease = (event) => {
-    if (!isRecording.value && !isVoiceProcessing.value) {
+    if (!isRecording.value) {
       return
     }
 
@@ -680,8 +685,7 @@ const cleanupRecorder = () => {
   isRecording.value = false
   isVoiceProcessing.value = false
   currentVoiceCallbackId = ''
-  cleanupVoiceReleaseHandlers?.()
-  cleanupVoiceReleaseHandlers = null
+  detachVoiceReleaseHandlers()
 }
 
 const startVoiceRecord = async (event) => {
@@ -745,6 +749,7 @@ const finishVoiceRecord = () => {
 
   isRecording.value = false
   isVoiceProcessing.value = true
+  detachVoiceReleaseHandlers()
 
   if (recordTimer) {
     clearInterval(recordTimer)
@@ -759,13 +764,14 @@ const finishVoiceRecord = () => {
 }
 
 const cancelVoiceRecord = () => {
-  if (!isRecording.value && !isVoiceProcessing.value) {
+  if (!isRecording.value) {
     return
   }
 
   shouldCancelRecord = true
   isRecording.value = false
   isVoiceProcessing.value = true
+  detachVoiceReleaseHandlers()
 
   if (recordTimer) {
     clearInterval(recordTimer)
@@ -1008,12 +1014,14 @@ const handleVoiceResult = async (data) => {
     )
 
     if (durationValue < MIN_VOICE_DURATION) {
+      cleanupRecorder()
       showToast('说话时间太短')
       return
     }
 
     const rawAudio = audio || audioBase64 || audioUrl
     if (!rawAudio) {
+      cleanupRecorder()
       showToast('语音数据为空')
       return
     }
