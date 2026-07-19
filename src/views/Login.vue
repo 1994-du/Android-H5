@@ -107,10 +107,11 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { login, register } from '@/api/auth'
+import { register } from '@/api/auth'
 import { showToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 import { setToken } from '@/utils/token'
+import { extractExpire, extractToken, loginByPassword } from '@/utils/login'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -154,22 +155,6 @@ const validateForm = () => {
   return true
 }
 
-const extractToken = (res) => {
-  return res?.data?.token
-    || res?.token
-    || res?.data?.accessToken
-    || res?.accessToken
-    || ''
-}
-
-const extractExpire = (res) => {
-  return res?.data?.expire
-    || res?.data?.expiresAt
-    || res?.expire
-    || res?.expiresAt
-    || null
-}
-
 const handleSubmit = async () => {
   if (!validateForm()) return
 
@@ -177,34 +162,34 @@ const handleSubmit = async () => {
   errorMessage.value = ''
 
   try {
-    const apiFunc = isLogin.value ? login : register
-    const res = await apiFunc({
+    const payload = {
       username: username.value,
       password: password.value
-    })
+    }
+    const res = isLogin.value
+      ? await loginByPassword(payload, { userStore })
+      : await register(payload)
 
     console.log(isLogin.value ? '登录成功:' : '注册成功:', res)
 
-    if (res.code === 200) {
+    if (!isLogin.value) {
       const token = extractToken(res)
       const expire = extractExpire(res)
       userStore.setUserInfo(res)
       setToken(token, expire)
-      
-      if (isLogin.value && rememberMe.value) {
-        localStorage.setItem('username', username.value)
-      } else {
-        localStorage.removeItem('username')
-      }
-      
-      showToast({
-        type: 'success',
-        message: isLogin.value ? '登录成功' : '注册成功'
-      })
-      router.push('/public-chat')
-    } else {
-      errorMessage.value = res.msg || res.message || (isLogin.value ? '登录失败' : '注册失败')
     }
+
+    if (isLogin.value && rememberMe.value) {
+      localStorage.setItem('username', username.value)
+    } else {
+      localStorage.removeItem('username')
+    }
+
+    showToast({
+      type: 'success',
+      message: isLogin.value ? '登录成功' : '注册成功'
+    })
+    router.push('/public-chat')
   } catch (error) {
     console.error(isLogin.value ? '登录失败:' : '注册失败:', error)
     errorMessage.value = error.message || (isLogin.value ? '登录失败，请稍后重试' : '注册失败，请稍后重试')

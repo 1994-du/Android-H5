@@ -288,6 +288,12 @@ let recordStartedAt = 0
 let recordTimer = null
 let shouldCancelRecord = false
 let currentVoiceCallbackId = ''
+let voiceStartPending = false
+let voicePendingReleaseAction = ''
+let voiceRecordMode = ''
+let browserMediaRecorder = null
+let browserMediaStream = null
+let browserVoiceChunks = []
 let activeAudio = null
 
 const showEmojiPanel = computed(() => activePanel.value === 'emoji')
@@ -295,6 +301,51 @@ const showMorePanel = computed(() => activePanel.value === 'more')
 const hasInputText = computed(() => inputMessage.value.trim().length > 0)
 
 const createVoiceCallbackId = () => `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+
+const isBrowserVoiceRecordSupported = () => {
+  const nav = typeof navigator === 'undefined' ? null : navigator
+  return Boolean(nav?.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined')
+}
+
+const getBrowserVoiceMimeType = () => {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return ''
+  }
+
+  const mimeTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/mp4',
+    'audio/m4a',
+    'audio/aac'
+  ]
+
+  return mimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || ''
+}
+
+const stopBrowserVoiceTracks = () => {
+  if (!browserMediaStream) {
+    return
+  }
+
+  browserMediaStream.getTracks().forEach((track) => {
+    try {
+      track.stop()
+    } catch (error) {
+      console.warn('停止浏览器语音轨道失败:', error)
+    }
+  })
+
+  browserMediaStream = null
+}
+
+const resetBrowserVoiceRecorder = () => {
+  browserMediaRecorder = null
+  browserVoiceChunks = []
+  voiceRecordMode = ''
+}
 
 const detachVoiceReleaseHandlers = () => {
   cleanupVoiceReleaseHandlers?.()
@@ -306,6 +357,15 @@ const attachVoiceReleaseHandlers = () => {
 
   const handleVoiceRelease = (event) => {
     if (!isRecording.value) {
+      if (!voiceStartPending) {
+        return
+      }
+
+      if (event?.type === 'touchcancel' || event?.type === 'pointercancel' || shouldCancelRecord) {
+        voicePendingReleaseAction = 'cancel'
+      } else if (voicePendingReleaseAction !== 'cancel') {
+        voicePendingReleaseAction = 'finish'
+      }
       return
     }
 
@@ -687,16 +747,110 @@ const cleanupRecorder = () => {
   isRecording.value = false
   isVoiceProcessing.value = false
   currentVoiceCallbackId = ''
+  voiceStartPending = false
+  voicePendingReleaseAction = ''
+  stopBrowserVoiceTracks()
+  resetBrowserVoiceRecorder()
   detachVoiceReleaseHandlers()
+}
+
+const startBrowserVoiceRecord = async () => {
+  if (!isBrowserVoiceRecordSupported()) {
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      showToast('浏览器语音需要 HTTPS 或 localhost')
+    } else {
+      showToast('当前浏览器不支持麦克风录音')
+    }
+    return false
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    const preferredMimeType = getBrowserVoiceMimeType()
+    let recorder
+
+    try {
+      recorder = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream)
+    } catch (error) {
+      if (preferredMimeType) {
+        recorder = new MediaRecorder(stream)
+      } else {
+        throw error
+      }
+    }
+
+    browserMediaStream = stream
+    browserMediaRecorder = recorder
+    browserVoiceChunks = []
+    voiceRecordMode = 'browser'
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        browserVoiceChunks.push(event.data)
+      }
+    }
+
+    recorder.onerror = (event) => {
+      console.error('浏览器语音录制失败:', event)
+      cleanupRecorder()
+      showToast('语音录制失败')
+    }
+
+    recorder.onstop = () => {
+      const mimeType = recorder.mimeType || preferredMimeType || 'audio/webm'
+      const blob = browserVoiceChunks.length > 0
+        ? new Blob(browserVoiceChunks, { type: mimeType })
+        : null
+      const fileName = `voice-${Date.now()}.${getVoiceFileExtension(mimeType, '')}`
+
+      browserVoiceChunks = []
+      stopBrowserVoiceTracks()
+      resetBrowserVoiceRecorder()
+
+      void handleVoiceResult({
+        callbackId: currentVoiceCallbackId,
+        audio: blob,
+        type: mimeType,
+        mimeType,
+        fileName,
+        durationMs: Date.now() - recordStartedAt
+      })
+    }
+
+    recordStartedAt = Date.now()
+    recorder.start()
+    return true
+  } catch (error) {
+    console.error('浏览器语音启动失败:', error)
+    stopBrowserVoiceTracks()
+    resetBrowserVoiceRecorder()
+    if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+      showToast('麦克风权限被拒绝')
+    } else {
+      showToast('无法使用电脑麦克风')
+    }
+    return false
+  }
+}
+
+const stopBrowserVoiceRecord = () => {
+  if (!browserMediaRecorder || browserMediaRecorder.state !== 'recording') {
+    return false
+  }
+
+  try {
+    browserMediaRecorder.stop()
+    return true
+  } catch (error) {
+    console.error('结束浏览器语音录制失败:', error)
+    return false
+  }
 }
 
 const startVoiceRecord = async (event) => {
   if (isRecording.value || isVoiceProcessing.value) {
-    return
-  }
-
-  if (!isAndroidVoiceAvailable()) {
-    showToast('当前环境不支持原生语音')
     return
   }
 
@@ -707,7 +861,8 @@ const startVoiceRecord = async (event) => {
     recordDuration.value = 0
     isVoiceProcessing.value = false
     currentVoiceCallbackId = createVoiceCallbackId()
-    recordStartedAt = Date.now()
+    voiceStartPending = true
+    voicePendingReleaseAction = ''
 
     const pointerTarget = event?.currentTarget
     if (pointerTarget?.setPointerCapture && event?.pointerId !== undefined && event?.pointerId !== null) {
@@ -720,17 +875,32 @@ const startVoiceRecord = async (event) => {
 
     attachVoiceReleaseHandlers()
 
-    const started = startNativeVoiceRecord(currentVoiceCallbackId)
+    const started = isAndroidVoiceAvailable()
+      ? startNativeVoiceRecord(currentVoiceCallbackId)
+      : await startBrowserVoiceRecord()
+
     if (!started) {
-      showToast('当前环境不支持原生语音')
       cleanupRecorder()
       return
     }
 
+    recordStartedAt = Date.now()
+    voiceStartPending = false
     isRecording.value = true
     recordTimer = setInterval(() => {
       recordDuration.value = Math.max(1, Math.round((Date.now() - recordStartedAt) / 1000))
     }, 300)
+
+    if (voicePendingReleaseAction === 'cancel') {
+      voicePendingReleaseAction = ''
+      cancelVoiceRecord()
+      return
+    }
+
+    if (voicePendingReleaseAction === 'finish') {
+      voicePendingReleaseAction = ''
+      finishVoiceRecord()
+    }
   } catch (error) {
     cleanupRecorder()
     console.error('语音启动失败:', error)
@@ -739,9 +909,9 @@ const startVoiceRecord = async (event) => {
 }
 
 const handleVoiceTouchMove = (event) => {
-  const touch = event.touches?.[0]
-  if (!touch) return
-  shouldCancelRecord = touch.clientY < window.innerHeight - 180
+  const point = event.touches?.[0] || event.changedTouches?.[0] || event
+  if (typeof point?.clientY !== 'number') return
+  shouldCancelRecord = point.clientY < window.innerHeight - 180
 }
 
 const finishVoiceRecord = () => {
@@ -758,9 +928,13 @@ const finishVoiceRecord = () => {
     recordTimer = null
   }
 
-  if (!stopNativeVoiceRecord()) {
+  const stopped = voiceRecordMode === 'browser'
+    ? stopBrowserVoiceRecord()
+    : stopNativeVoiceRecord()
+
+  if (!stopped) {
     isVoiceProcessing.value = false
-    showToast('当前环境不支持原生语音')
+    showToast(voiceRecordMode === 'browser' ? '当前浏览器不支持语音录制' : '当前环境不支持原生语音')
     cleanupRecorder()
   }
 }
@@ -780,7 +954,11 @@ const cancelVoiceRecord = () => {
     recordTimer = null
   }
 
-  if (!cancelNativeVoiceRecord()) {
+  const canceled = voiceRecordMode === 'browser'
+    ? stopBrowserVoiceRecord()
+    : cancelNativeVoiceRecord()
+
+  if (!canceled) {
     isVoiceProcessing.value = false
     cleanupRecorder()
   }

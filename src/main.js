@@ -3,14 +3,14 @@ import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import router from './router'
 import App from './App.vue'
-import VConsole from 'vconsole'
+import { initVConsole } from '@/utils/vconsoleControll'
 
 import Vant from 'vant'
 import 'vant/lib/index.css'
 import './style.less'
 
 
-new VConsole()
+initVConsole()
 window.addEventListener('statusBarReady', () => {
   console.log('拿到了:', window.STATUS_BAR_HEIGHT)
 
