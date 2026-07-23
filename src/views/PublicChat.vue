@@ -1008,6 +1008,15 @@ const initWebSocket = () => {
     console.log('WebSocket未连接，尝试重新连接')
     const { url, userInfo } = getWsConnectOptions()
     wsService.connect(url, userInfo)
+    return
+  }
+
+  if (!userStore.token || !userStore.id) {
+    console.warn('[H5][PublicChat] WebSocket skipped: auth incomplete', {
+      hasToken: Boolean(userStore.token),
+      userId: userStore.id || null,
+      username: userStore.username || ''
+    })
   }
 }
 

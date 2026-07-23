@@ -16,6 +16,37 @@ const getDXCHATNative = () => {
   return dxchat
 }
 
+const waitForDXCHATNative = async (timeout = 5000) => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const initialBridge = getDXCHATNative()
+  if (typeof initialBridge?.getSecurity === 'function') {
+    return initialBridge
+  }
+
+  if (!window.AndroidWebSocket && !initialBridge) {
+    return null
+  }
+
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    const dxchat = window.DXCHAT_NATIVE || null
+    if (typeof dxchat?.getSecurity === 'function') {
+      console.info('[H5][Auth] DXCHAT_NATIVE became available while waiting')
+      return dxchat
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+
+  console.warn('[H5][Auth] DXCHAT_NATIVE wait timed out')
+  return typeof window.DXCHAT_NATIVE?.getSecurity === 'function'
+    ? window.DXCHAT_NATIVE
+    : null
+}
+
 const parsePayload = (payload) => {
   if (typeof payload !== 'string') {
     return payload
@@ -89,7 +120,7 @@ const syncUserStore = (userStore, authData, token) => {
 
 export const initAuth = async (options = {}) => {
   const { userStore } = options
-  const dxchat = getDXCHATNative()
+  const dxchat = await waitForDXCHATNative()
   const isNative = typeof dxchat?.isNative === 'function'
     ? dxchat.isNative()
     : Boolean(dxchat?.isNative)
@@ -131,15 +162,32 @@ export const initAuth = async (options = {}) => {
 
           const expire = extractExpire(authData)
           setToken(token, expire)
-          console.info('[H5][Auth] token stored, calling getUserInfo')
-          const userInfo = await getUserInfo()
-          console.info('[H5][Auth] getUserInfo success:', {
-            responseKeys: userInfo && typeof userInfo === 'object' ? Object.keys(userInfo) : [],
-            dataKeys: userInfo?.data && typeof userInfo.data === 'object'
-              ? Object.keys(userInfo.data)
-              : []
+          syncUserStore(userStore, authData, token)
+          console.info('[H5][Auth] native identity synchronized:', {
+            userId: userStore?.id || null,
+            username: userStore?.username || '',
+            hasToken: Boolean(userStore?.token)
           })
-          syncUserStore(userStore, userInfo, token)
+
+          let userInfo = null
+          try {
+            console.info('[H5][Auth] token stored, calling getUserInfo')
+            userInfo = await getUserInfo()
+            console.info('[H5][Auth] getUserInfo success:', {
+              responseKeys: userInfo && typeof userInfo === 'object' ? Object.keys(userInfo) : [],
+              dataKeys: userInfo?.data && typeof userInfo.data === 'object'
+                ? Object.keys(userInfo.data)
+                : []
+            })
+            syncUserStore(userStore, userInfo, token)
+          } catch (error) {
+            console.error('[H5][Auth] getUserInfo failed after native auth:', error)
+            if (!userStore?.id) {
+              throw error
+            }
+            console.warn('[H5][Auth] continuing with native identity because userId is available')
+          }
+
           resolve({
             token,
             expire,

@@ -1,12 +1,22 @@
 import axios from 'axios'
 import { getToken } from '@/utils/token'
 
+const apiBaseURL = import.meta.env.PROD
+  ? import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_PROXY || ''
+  : ''
+
 // 创建 axios 实例
 const request = axios.create({
+  baseURL: apiBaseURL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
   }
+})
+
+console.info('[H5][API] client initialized:', {
+  baseURL: apiBaseURL || '(same-origin)',
+  mode: import.meta.env.MODE
 })
 
 // 请求拦截器
@@ -44,11 +54,17 @@ request.interceptors.response.use(
   (error) => {    
     // 对响应错误做点什么
     const { response } = error
+    console.error('[H5][API] request failed:', {
+      url: error.config?.url || '',
+      method: error.config?.method || '',
+      status: response?.status || null,
+      message: error.message || ''
+    })
     console.log('响应错误:', response)
     
     return Promise.reject({
-      code: response.status,
-      msg: response.statusText
+      code: response?.status || 0,
+      msg: response?.statusText || error.message || 'Network request failed'
     })
   }
 )
