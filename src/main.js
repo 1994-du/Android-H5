@@ -3,6 +3,8 @@ import { createPinia } from 'pinia'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import router from './router'
 import App from './App.vue'
+import { useUserStore } from '@/stores/user'
+import { initAuth } from '@/utils/login'
 import { initVConsole } from '@/utils/vconsoleControll'
 
 import Vant from 'vant'
@@ -19,15 +21,27 @@ window.addEventListener('statusBarReady', () => {
     window.STATUS_BAR_HEIGHT + 'px'
   )
 })
-const app = createApp(App)
+const bootstrap = async () => {
+  const app = createApp(App)
 
-// 创建 Pinia 实例
-const pinia = createPinia()
+  // 创建 Pinia 实例
+  const pinia = createPinia()
 
-// 添加持久化插件
-pinia.use(piniaPluginPersistedstate)
+  // 添加持久化插件
+  pinia.use(piniaPluginPersistedstate)
 
-app.use(Vant)
-app.use(pinia)
-app.use(router)
-app.mount('#app')
+  const userStore = useUserStore(pinia)
+
+  try {
+    await initAuth({ userStore })
+  } catch (error) {
+    console.error('初始化原生鉴权失败:', error)
+  }
+
+  app.use(Vant)
+  app.use(pinia)
+  app.use(router)
+  app.mount('#app')
+}
+
+bootstrap()

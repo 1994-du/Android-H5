@@ -20,25 +20,14 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { useUserStore } from '@/stores/user'
-import { buildDynamicRoutesFromMenus, getDefaultDynamicRoutes } from '@/router/routes'
+import { tabbarRoutes } from '@/router/routes'
 
 const route = useRoute()
-const userStore = useUserStore()
 
 const unreadCount = ref(0)
 const active = computed(() => route.path)
 
-const getTabRoutes = () => {
-  const routes = buildDynamicRoutesFromMenus(userStore.menus)
-    .filter((item) => item.meta?.showTabbar)
-
-  return routes.length > 0
-    ? routes
-    : getDefaultDynamicRoutes().filter((item) => item.meta?.showTabbar)
-}
-
-const tabItems = computed(() => getTabRoutes()
+const tabItems = computed(() => [...tabbarRoutes]
   .sort((a, b) => (a.meta?.tabbarOrder || 0) - (b.meta?.tabbarOrder || 0))
   .map((item) => ({
     name: item.name,

@@ -1,66 +1,33 @@
 import VConsole from 'vconsole'
+import Cookies from 'js-cookie'
 
-const VCONSOLE_INSTANCE_KEY = '__APP_VCONSOLE__'
-const TRUE_VALUES = new Set(['1', 'true', 'yes', 'on'])
-const FALSE_VALUES = new Set(['0', 'false', 'no', 'off'])
+let vConsole = null
 
-const normalizeValue = (value) => String(value || '').trim().toLowerCase()
-
-export const getVConsoleWhiteList = (whiteList = import.meta.env.VITE_VCONSOLE_WHITELIST || '') => {
-  if (Array.isArray(whiteList)) {
-    return whiteList.map(normalizeValue).filter(Boolean)
+export const initVConsole = () => {
+  if (import.meta.env.MODE === 'development' || (Cookies.get('isVconsoleOn') && import.meta.env.MODE === 'production')) {
+    if (vConsole) return vConsole
+    vConsole = new VConsole()
+    return vConsole
   }
 
-  return String(whiteList)
-    .split(',')
-    .map(normalizeValue)
-    .filter(Boolean)
+  if (vConsole) {
+    vConsole.destroy()
+    vConsole = null
+  }
+
+  return null
 }
 
-export const shouldShowVConsole = (identity = '', whiteList) => {
-  if (typeof window === 'undefined') {
-    return false
+export const vconsoleCheck = () => {
+  if (import.meta.env.MODE === 'development' || (Cookies.get('isVconsoleOn') && import.meta.env.MODE === 'production')) {
+    if (vConsole) return
+    vConsole = new VConsole()
+  } else {
+    if (vConsole) {
+      vConsole.destroy()
+      vConsole = null
+    }
   }
-
-  const switchValue = normalizeValue(new URLSearchParams(window.location.search).get('vconsole'))
-  if (TRUE_VALUES.has(switchValue)) {
-    return true
-  }
-  if (FALSE_VALUES.has(switchValue)) {
-    return false
-  }
-
-  const normalizedWhiteList = getVConsoleWhiteList(whiteList)
-  if (!normalizedWhiteList.length) {
-    return false
-  }
-
-  if (normalizedWhiteList.includes('*')) {
-    return true
-  }
-
-  const candidates = [
-    identity,
-    window.location.hostname,
-    window.location.host,
-    window.location.origin
-  ]
-    .map(normalizeValue)
-    .filter(Boolean)
-
-  return candidates.some((candidate) => normalizedWhiteList.includes(candidate))
 }
 
-export const initVConsole = (identity = '', whiteList) => {
-  if (!shouldShowVConsole(identity, whiteList)) {
-    return null
-  }
-
-  if (!window[VCONSOLE_INSTANCE_KEY]) {
-    window[VCONSOLE_INSTANCE_KEY] = new VConsole()
-  }
-
-  return window[VCONSOLE_INSTANCE_KEY]
-}
-
-export default shouldShowVConsole
+export default initVConsole

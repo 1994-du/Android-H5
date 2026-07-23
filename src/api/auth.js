@@ -1,4 +1,4 @@
-import { post } from './index'
+import { get, post } from './index'
 
 /**
  * 用户登录
@@ -35,7 +35,7 @@ export const logout = () => {
  * @returns {Promise} - 返回用户信息
  */
 export const getUserInfo = () => {
-  return post('/api/auth/userInfo')
+  return get('/api/users/me')
 }
 
 /**

@@ -73,7 +73,7 @@ const handleLogout = async () => {
       message: '退出成功'
     })
     
-    router.push('/login')
+    router.push('/public-chat')
   } catch {
     // 用户取消
   }

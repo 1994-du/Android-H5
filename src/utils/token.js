@@ -1,55 +1,45 @@
-export const TOKEN_STORAGE_KEY = 'user-token'
+import Cookies from 'js-cookie'
 
-const DEFAULT_EXPIRE_MS = 7 * 24 * 60 * 60 * 1000
+const TOKEN_KEY = 'user-token'
+const DEFAULT_EXPIRE_DAYS = 7
 
-const parseTokenRecord = () => {
-  const rawValue = localStorage.getItem(TOKEN_STORAGE_KEY)
-  if (!rawValue) return null
-
-  try {
-    const record = JSON.parse(rawValue)
-    if (!record || typeof record !== 'object') {
-      removeToken()
-      return null
-    }
-
-    return record
-  } catch (error) {
-    console.error('解析 token 失败:', error)
-    removeToken()
+const normalizeTokenRecord = (tokenOrRecord, expire) => {
+  if (!tokenOrRecord) {
     return null
   }
-}
 
-export const getToken = () => {
-  const record = parseTokenRecord()
-  if (!record) return ''
-
-  const { token, expire } = record
-  if (!token || !expire) {
-    removeToken()
-    return ''
+  if (typeof tokenOrRecord === 'object') {
+    const token = tokenOrRecord.value || tokenOrRecord.token || ''
+    const expires = tokenOrRecord.expires || tokenOrRecord.expire || expire
+    return token ? { token, expires } : null
   }
 
-  if (Date.now() >= Number(expire)) {
-    removeToken()
-    return ''
+  return {
+    token: String(tokenOrRecord),
+    expires: expire
   }
-
-  return token
 }
 
-export const setToken = (token, expire) => {
-  if (!token) return
-
-  const tokenRecord = {
-    token,
-    expire: expire || Date.now() + DEFAULT_EXPIRE_MS
+export const setToken = (tokenOrRecord, expire) => {
+  const record = normalizeTokenRecord(tokenOrRecord, expire)
+  if (!record?.token) {
+    return
   }
 
-  localStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(tokenRecord))
+  const cookieOptions = {}
+  if (record.expires) {
+    cookieOptions.expires = new Date(record.expires)
+  } else {
+    cookieOptions.expires = DEFAULT_EXPIRE_DAYS
+  }
+
+  Cookies.set(TOKEN_KEY, record.token, cookieOptions)
 }
+
+export const getToken = () => Cookies.get(TOKEN_KEY) || null
 
 export const removeToken = () => {
-  localStorage.removeItem(TOKEN_STORAGE_KEY)
+  Cookies.remove(TOKEN_KEY)
 }
+
+export { TOKEN_KEY }
