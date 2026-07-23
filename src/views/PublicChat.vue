@@ -302,6 +302,20 @@ const hasInputText = computed(() => inputMessage.value.trim().length > 0)
 
 const createVoiceCallbackId = () => `voice_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 
+const getChatAuthContext = () => {
+  const normalizedUserId = Number(userStore.id)
+  const hasUserId = userStore.id !== null
+    && userStore.id !== undefined
+    && String(userStore.id).trim() !== ''
+    && Number.isFinite(normalizedUserId)
+
+  return {
+    hasToken: Boolean(userStore.token),
+    userId: hasUserId ? normalizedUserId : null,
+    hasAuth: Boolean(userStore.token) && hasUserId
+  }
+}
+
 const isBrowserVoiceRecordSupported = () => {
   const nav = typeof navigator === 'undefined' ? null : navigator
   return Boolean(nav?.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined')
@@ -421,10 +435,11 @@ const getFileInputKind = (target) => {
 }
 
 const getWsConnectOptions = () => {
+  const { hasToken, userId, hasAuth } = getChatAuthContext()
   const options = {
     url: import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws',
     userInfo: {
-      userId: Number(userStore.id),
+      userId,
       username: userStore.username,
       avatar: userStore.avatar
     }
@@ -432,12 +447,14 @@ const getWsConnectOptions = () => {
 
   console.info('[H5][PublicChat] getWsConnectOptions:', {
     url: options.url,
-    userId: options.userInfo.userId,
+    hasToken,
+    userId,
+    hasAuth,
     username: options.userInfo.username,
     hasAvatar: Boolean(options.userInfo.avatar)
   })
 
-  return options
+  return { ...options, hasToken, hasAuth }
 }
 
 const ensureChatSocketReady = async ({ silent = false } = {}) => {
@@ -450,7 +467,18 @@ const ensureChatSocketReady = async ({ silent = false } = {}) => {
     return true
   }
 
-  const { url, userInfo } = getWsConnectOptions()
+  const { url, userInfo, hasAuth } = getWsConnectOptions()
+  if (!hasAuth) {
+    console.warn('[H5][PublicChat] ensureChatSocketReady skipped: auth incomplete', {
+      hasToken: Boolean(userStore.token),
+      userId: userStore.id || null,
+      username: userStore.username || ''
+    })
+    if (!silent) {
+      showToast('登录信息未就绪，请稍后重试')
+    }
+    return false
+  }
   if (!silent) {
     showToast('正在恢复连接...')
   }
@@ -996,28 +1024,25 @@ const setKeyboardHeight = (visible, height) => {
   setTimeout(scrollToBottom, 50)
 }
 
-const initWebSocket = () => {
+const initWebSocket = async ({ silent = true } = {}) => {
+  const { hasToken, userId, hasAuth } = getChatAuthContext()
   console.info('[H5][PublicChat] initWebSocket:', {
-    hasToken: Boolean(userStore.token),
-    userId: userStore.id || null,
+    hasToken,
+    userId,
+    hasAuth,
     isConnected: wsService.isConnected,
     isReady: wsService.isReady
   })
-  // 进入聊天页时建立 WebSocket 连接
-  if (userStore.token && userStore.id && !wsService.isConnected) {
-    console.log('WebSocket未连接，尝试重新连接')
-    const { url, userInfo } = getWsConnectOptions()
-    wsService.connect(url, userInfo)
-    return
-  }
-
-  if (!userStore.token || !userStore.id) {
+  if (!hasAuth) {
     console.warn('[H5][PublicChat] WebSocket skipped: auth incomplete', {
-      hasToken: Boolean(userStore.token),
-      userId: userStore.id || null,
+      hasToken,
+      userId,
       username: userStore.username || ''
     })
+    return false
   }
+
+  return ensureChatSocketReady({ silent })
 }
 
 const handleAppResume = () => {
@@ -1124,6 +1149,26 @@ watch(activePanel, () => {
     scrollToBottom()
   })
 })
+
+watch(
+  () => [userStore.token, userStore.id],
+  () => {
+    const { hasToken, userId, hasAuth } = getChatAuthContext()
+    if (!hasAuth) {
+      return
+    }
+
+    if (!wsService.isConnected || !wsService.isReady) {
+      console.info('[H5][PublicChat] auth ready, ensuring WebSocket connection:', {
+        hasToken,
+        userId,
+        isConnected: wsService.isConnected,
+        isReady: wsService.isReady
+      })
+      void initWebSocket({ silent: true })
+    }
+  }
+)
 
 const focusTextarea = () => {
   textareaRef.value?.focus()
@@ -1409,7 +1454,7 @@ onMounted(() => {
   scrollToBottom()
   nextTick(() => {
     resizeTextarea()
-    initWebSocket()
+    void initWebSocket({ silent: true })
   })
   
   wsService.on('ready', handleReady)
