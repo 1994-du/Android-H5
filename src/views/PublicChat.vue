@@ -1266,27 +1266,26 @@ const handleVoiceError = (data) => {
   }
 }
 
-const sendMessage = () => {
+const sendMessage = async () => {
+  const text = inputMessage.value.trim()
   console.info('[H5][PublicChat] sendMessage attempt:', {
-    hasInput: Boolean(inputMessage.value.trim()),
-    inputLength: inputMessage.value.trim().length,
+    hasInput: Boolean(text),
+    inputLength: text.length,
     userId: userStore.id || null,
     hasToken: Boolean(userStore.token),
     isConnected: wsService.isConnected,
-    isReady: wsService.isReady
+    isReady: wsService.isReady,
+    socketReady: wsService.isSocketReady()
   })
-  if (!inputMessage.value.trim()) return
-  
-  if (!wsService.isConnected) {
-    showToast('正在连接服务器...')
-    return
+  if (!text) return
+
+  if (!wsService.isSocketReady()) {
+    const connected = await ensureChatSocketReady()
+    if (!connected || !wsService.isSocketReady()) {
+      return
+    }
   }
-  
-  if (!wsService.isReady) {
-    showToast('正在建立连接，请稍后...')
-    return
-  }
-  
+
   const now = new Date()
   const hours = now.getHours().toString().padStart(2, '0')
   const minutes = now.getMinutes().toString().padStart(2, '0')
@@ -1298,7 +1297,7 @@ const sendMessage = () => {
       userId: Number(userStore.id),
       fromUsername: userStore.username,
       avatar: userStore.avatar,
-      message: inputMessage.value,
+      message: text,
       time: time
     }
   }
