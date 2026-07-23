@@ -12,6 +12,37 @@ const listenerMap = {
 
 const globalCallbacks = new Map()
 
+const bridgeLog = (level, message, payload) => {
+  const logger = console[level] || console.log
+  logger.call(console, `[nativeBridge] ${message}`, payload)
+}
+
+const summarizeBridgeValue = (value) => {
+  if (value === null || value === undefined) {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return { type: 'array', length: value.length }
+  }
+
+  if (typeof value === 'object') {
+    return {
+      type: 'object',
+      keys: Object.keys(value),
+      state: value.state ?? value.status ?? null,
+      connected: value.connected ?? null,
+      ready: value.ready ?? null
+    }
+  }
+
+  if (typeof value === 'string') {
+    return { type: 'string', length: value.length }
+  }
+
+  return { type: typeof value, value }
+}
+
 export const NATIVE_BRIDGE_API = {
   h5ToNative: {
     AndroidPhoto: [
@@ -152,6 +183,7 @@ const normalizeNativeBoolean = (value) => {
 }
 
 const emitBridgeEvent = (eventName, ...args) => {
+  bridgeLog('info', `emit ${eventName}`, args.map((item) => summarizeBridgeValue(item)))
   listenerMap[eventName]?.forEach((listener) => {
     try {
       listener(...args)
@@ -164,6 +196,9 @@ const emitBridgeEvent = (eventName, ...args) => {
 const ensureGlobalCallback = (callbackName, handler) => {
   const bridgeWindow = getBridgeWindow()
   if (!bridgeWindow) {
+    bridgeLog('warn', `ensureGlobalCallback skipped: ${callbackName}`, {
+      reason: 'window unavailable'
+    })
     return
   }
 
@@ -194,6 +229,9 @@ const ensureGlobalCallback = (callbackName, handler) => {
     previousCallback
   })
   bridgeWindow[callbackName] = callback
+  bridgeLog('info', `global callback registered: ${callbackName}`, {
+    hasPreviousCallback: Boolean(previousCallback)
+  })
 }
 
 const addBridgeListener = (eventName, listener) => {
@@ -326,20 +364,40 @@ export const isNativeVoiceRecording = () => {
 
 export const isNativeWebSocketAvailable = () => {
   const bridgeWindow = getBridgeWindow()
-  return Boolean(
+  const available = Boolean(
     bridgeWindow?.AndroidWebSocket
     && typeof bridgeWindow.AndroidWebSocket.connect === 'function'
     && typeof bridgeWindow.AndroidWebSocket.send === 'function'
   )
+  bridgeLog('info', 'isNativeWebSocketAvailable', {
+    available,
+    hasBridgeWindow: Boolean(bridgeWindow),
+    hasAndroidWebSocket: Boolean(bridgeWindow?.AndroidWebSocket),
+    hasConnect: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.connect === 'function'),
+    hasSend: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.send === 'function'),
+    hasClose: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.close === 'function'),
+    hasReconnect: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.reconnect === 'function'),
+    hasIsConnected: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.isConnected === 'function')
+  })
+  return available
 }
 
 export const connectNativeWebSocket = (wsUrl, userInfo) => {
   const bridgeWindow = getBridgeWindow()
   if (!isNativeWebSocketAvailable()) {
+    bridgeLog('warn', 'connectNativeWebSocket skipped', {
+      reason: 'bridge unavailable',
+      wsUrl,
+      userInfo: summarizeBridgeValue(userInfo)
+    })
     return false
   }
 
   ensureNativeWebSocketCallbacks()
+  bridgeLog('info', 'calling AndroidWebSocket.connect', {
+    wsUrl,
+    userInfo: summarizeBridgeValue(userInfo)
+  })
   bridgeWindow.AndroidWebSocket.connect(wsUrl, stringifyNativePayload(userInfo))
   return true
 }
@@ -347,9 +405,16 @@ export const connectNativeWebSocket = (wsUrl, userInfo) => {
 export const sendNativeWebSocket = (message) => {
   const bridgeWindow = getBridgeWindow()
   if (!isNativeWebSocketAvailable()) {
+    bridgeLog('warn', 'sendNativeWebSocket skipped', {
+      reason: 'bridge unavailable',
+      message: summarizeBridgeValue(message)
+    })
     return false
   }
 
+  bridgeLog('info', 'calling AndroidWebSocket.send', {
+    message: summarizeBridgeValue(message)
+  })
   bridgeWindow.AndroidWebSocket.send(stringifyNativePayload(message))
   return true
 }
@@ -357,9 +422,14 @@ export const sendNativeWebSocket = (message) => {
 export const closeNativeWebSocket = () => {
   const bridgeWindow = getBridgeWindow()
   if (!bridgeWindow?.AndroidWebSocket || typeof bridgeWindow.AndroidWebSocket.close !== 'function') {
+    bridgeLog('warn', 'closeNativeWebSocket skipped', {
+      hasAndroidWebSocket: Boolean(bridgeWindow?.AndroidWebSocket),
+      hasClose: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.close === 'function')
+    })
     return false
   }
 
+  bridgeLog('info', 'calling AndroidWebSocket.close', {})
   bridgeWindow.AndroidWebSocket.close()
   return true
 }
@@ -367,10 +437,15 @@ export const closeNativeWebSocket = () => {
 export const reconnectNativeWebSocket = () => {
   const bridgeWindow = getBridgeWindow()
   if (!bridgeWindow?.AndroidWebSocket || typeof bridgeWindow.AndroidWebSocket.reconnect !== 'function') {
+    bridgeLog('warn', 'reconnectNativeWebSocket skipped', {
+      hasAndroidWebSocket: Boolean(bridgeWindow?.AndroidWebSocket),
+      hasReconnect: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.reconnect === 'function')
+    })
     return false
   }
 
   ensureNativeWebSocketCallbacks()
+  bridgeLog('info', 'calling AndroidWebSocket.reconnect', {})
   bridgeWindow.AndroidWebSocket.reconnect()
   return true
 }
@@ -378,10 +453,16 @@ export const reconnectNativeWebSocket = () => {
 export const isNativeWebSocketConnected = () => {
   const bridgeWindow = getBridgeWindow()
   if (!bridgeWindow?.AndroidWebSocket || typeof bridgeWindow.AndroidWebSocket.isConnected !== 'function') {
+    bridgeLog('warn', 'isNativeWebSocketConnected fallback false', {
+      hasAndroidWebSocket: Boolean(bridgeWindow?.AndroidWebSocket),
+      hasIsConnected: Boolean(bridgeWindow?.AndroidWebSocket && typeof bridgeWindow.AndroidWebSocket.isConnected === 'function')
+    })
     return false
   }
 
-  return normalizeNativeBoolean(bridgeWindow.AndroidWebSocket.isConnected())
+  const connected = normalizeNativeBoolean(bridgeWindow.AndroidWebSocket.isConnected())
+  bridgeLog('info', 'AndroidWebSocket.isConnected result', { connected })
+  return connected
 }
 
 export const registerPhotoHandlers = ({ onResult, onError } = {}) => {
@@ -417,6 +498,10 @@ export const registerKeyboardHandler = (handler) => {
 
 export const registerNativeWebSocketHandlers = ({ onMessage, onStatus } = {}) => {
   ensureNativeWebSocketCallbacks()
+  bridgeLog('info', 'registerNativeWebSocketHandlers', {
+    hasOnMessage: typeof onMessage === 'function',
+    hasOnStatus: typeof onStatus === 'function'
+  })
 
   const cleanups = [
     addBridgeListener('nativeWebSocketMessage', onMessage),

@@ -11,37 +11,61 @@ import Vant from 'vant'
 import 'vant/lib/index.css'
 import './style.less'
 
+const vConsoleInstance = initVConsole()
+console.info('[H5][Bootstrap] vConsole initialized:', {
+  available: Boolean(vConsoleInstance),
+  mode: import.meta.env.MODE,
+  env: import.meta.env.VITE_ENV || ''
+})
 
-initVConsole()
 window.addEventListener('statusBarReady', () => {
-  console.log('拿到了:', window.STATUS_BAR_HEIGHT)
-
+  console.info('[H5][Native] statusBarReady:', {
+    height: window.STATUS_BAR_HEIGHT
+  })
   document.documentElement.style.setProperty(
     '--status-bar-height',
     window.STATUS_BAR_HEIGHT + 'px'
   )
 })
+
 const bootstrap = async () => {
+  console.info('[H5][Bootstrap] start:', {
+    mode: import.meta.env.MODE,
+    projectUrl: import.meta.env.VITE_PROJECT_URL || '',
+    userAgent: navigator.userAgent
+  })
+
   const app = createApp(App)
-
-  // 创建 Pinia 实例
   const pinia = createPinia()
-
-  // 添加持久化插件
   pinia.use(piniaPluginPersistedstate)
 
   const userStore = useUserStore(pinia)
+  console.info('[H5][Bootstrap] user store created:', {
+    hasToken: Boolean(userStore.token),
+    userId: userStore.id || null,
+    username: userStore.username || ''
+  })
 
   try {
-    await initAuth({ userStore })
+    console.info('[H5][Auth] initAuth begin')
+    const authResult = await initAuth({ userStore })
+    console.info('[H5][Auth] initAuth complete:', {
+      handled: Boolean(authResult),
+      hasToken: Boolean(authResult?.token || userStore.token),
+      userId: userStore.id || null,
+      username: userStore.username || ''
+    })
   } catch (error) {
-    console.error('初始化原生鉴权失败:', error)
+    console.error('[H5][Auth] initAuth failed:', error)
   }
 
   app.use(Vant)
   app.use(pinia)
   app.use(router)
   app.mount('#app')
+  console.info('[H5][Bootstrap] app mounted')
 }
 
-bootstrap()
+bootstrap().catch((error) => {
+  console.error('[H5][Bootstrap] fatal error:', error)
+})

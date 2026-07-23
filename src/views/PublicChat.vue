@@ -420,16 +420,32 @@ const getFileInputKind = (target) => {
   return 'gallery'
 }
 
-const getWsConnectOptions = () => ({
-  url: import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws',
-  userInfo: {
-    userId: Number(userStore.id),
-    username: userStore.username,
-    avatar: userStore.avatar
+const getWsConnectOptions = () => {
+  const options = {
+    url: import.meta.env.VITE_WS_URL || import.meta.env.VITE_PROXY_WS || 'ws://localhost:1234/ws',
+    userInfo: {
+      userId: Number(userStore.id),
+      username: userStore.username,
+      avatar: userStore.avatar
+    }
   }
-})
+
+  console.info('[H5][PublicChat] getWsConnectOptions:', {
+    url: options.url,
+    userId: options.userInfo.userId,
+    username: options.userInfo.username,
+    hasAvatar: Boolean(options.userInfo.avatar)
+  })
+
+  return options
+}
 
 const ensureChatSocketReady = async ({ silent = false } = {}) => {
+  console.info('[H5][PublicChat] ensureChatSocketReady enter:', {
+    silent,
+    isConnected: wsService.isConnected,
+    isReady: wsService.isReady
+  })
   if (wsService.isConnected && wsService.isReady) {
     return true
   }
@@ -441,6 +457,10 @@ const ensureChatSocketReady = async ({ silent = false } = {}) => {
 
   try {
     await wsService.ensureConnected(url, userInfo)
+    console.info('[H5][PublicChat] ensureChatSocketReady resolved:', {
+      url,
+      userId: userInfo.userId
+    })
     return true
   } catch (error) {
     console.error('恢复 WebSocket 失败:', error)
@@ -977,6 +997,12 @@ const setKeyboardHeight = (visible, height) => {
 }
 
 const initWebSocket = () => {
+  console.info('[H5][PublicChat] initWebSocket:', {
+    hasToken: Boolean(userStore.token),
+    userId: userStore.id || null,
+    isConnected: wsService.isConnected,
+    isReady: wsService.isReady
+  })
   // 进入聊天页时建立 WebSocket 连接
   if (userStore.token && userStore.id && !wsService.isConnected) {
     console.log('WebSocket未连接，尝试重新连接')
@@ -986,6 +1012,13 @@ const initWebSocket = () => {
 }
 
 const handleAppResume = () => {
+  console.info('[H5][PublicChat] handleAppResume:', {
+    visibilityState: document.visibilityState,
+    hasToken: Boolean(userStore.token),
+    userId: userStore.id || null,
+    isConnected: wsService.isConnected,
+    isReady: wsService.isReady
+  })
   if (document.visibilityState && document.visibilityState !== 'visible') {
     return
   }
@@ -1225,6 +1258,14 @@ const handleVoiceError = (data) => {
 }
 
 const sendMessage = () => {
+  console.info('[H5][PublicChat] sendMessage attempt:', {
+    hasInput: Boolean(inputMessage.value.trim()),
+    inputLength: inputMessage.value.trim().length,
+    userId: userStore.id || null,
+    hasToken: Boolean(userStore.token),
+    isConnected: wsService.isConnected,
+    isReady: wsService.isReady
+  })
   if (!inputMessage.value.trim()) return
   
   if (!wsService.isConnected) {
@@ -1254,6 +1295,11 @@ const sendMessage = () => {
   }
   
   wsService.send(message)
+  console.info('[H5][PublicChat] sendMessage dispatched:', {
+    type: message.type,
+    userId: message.payload.userId,
+    textLength: message.payload.message.length
+  })
   
   inputMessage.value = ''
   activePanel.value = ''
@@ -1347,6 +1393,11 @@ const handleHeaderAction = (event) => {
 }
 
 onMounted(() => {
+  console.info('[H5][PublicChat] onMounted:', {
+    hasToken: Boolean(userStore.token),
+    userId: userStore.id || null,
+    username: userStore.username || ''
+  })
   scrollToBottom()
   nextTick(() => {
     resizeTextarea()

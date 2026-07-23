@@ -101,6 +101,38 @@ const parseJsonObject = (value) => {
   }
 }
 
+const summarizeSocketValue = (value) => {
+  if (value === null || value === undefined) {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    return { type: 'array', length: value.length }
+  }
+
+  if (typeof value === 'object') {
+    return {
+      type: 'object',
+      keys: Object.keys(value),
+      state: value.state ?? value.status ?? null,
+      connected: value.connected ?? null,
+      ready: value.ready ?? null,
+      typeField: value.type ?? value.messageType ?? null
+    }
+  }
+
+  if (typeof value === 'string') {
+    return { type: 'string', length: value.length }
+  }
+
+  return { type: typeof value, value }
+}
+
+const logSocket = (level, message, payload = {}) => {
+  const logger = console[level] || console.log
+  logger.call(console, `[H5][WebSocket] ${message}`, payload)
+}
+
 class WebSocketService {
   constructor() {
     this.ws = null
@@ -114,12 +146,22 @@ class WebSocketService {
     this.lastUrl = ''
     this.messages = reactive([])
     this.shouldReconnect = false
+    logSocket('info', 'close requested', {
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      shouldReconnect: this.shouldReconnect
+    })
     this.messageSeq = 0
     this.avatarUrlCache = new Map()
     this.preloadedAvatars = new Set()
     this.cleanupNativeHandlers = registerNativeWebSocketHandlers({
       onMessage: (data) => this.handleNativeMessage(data),
       onStatus: (data) => this.handleNativeStatus(data)
+    })
+    logSocket('info', 'service initialized', {
+      defaultWsUrl: getDefaultWsUrl(),
+      nativeAvailable: isNativeWebSocketAvailable()
     })
   }
 
@@ -871,6 +913,12 @@ class WebSocketService {
   }
 
   connect(url, userInfo, options = {}) {
+    logSocket('info', 'connect requested', {
+      url,
+      userInfo: summarizeSocketValue(userInfo),
+      options: summarizeSocketValue(options),
+      nativeAvailable: isNativeWebSocketAvailable()
+    })
     if (isNativeWebSocketAvailable()) {
       this.connectNative(url, userInfo, options)
       return
@@ -880,6 +928,15 @@ class WebSocketService {
   }
 
   connectNative(url, userInfo, { force = false } = {}) {
+    logSocket('info', 'connectNative enter', {
+      url,
+      force,
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      isNativeConnecting: this.isNativeConnecting,
+      userInfo: summarizeSocketValue(userInfo)
+    })
     if (this.socketMode === 'native' && this.isSocketReady()) {
       console.log('原生 WebSocket 已连接，跳过重复连接')
       return
@@ -924,6 +981,10 @@ class WebSocketService {
     }
 
     const started = connectNativeWebSocket(url, userInfo)
+    logSocket('info', 'connectNative dispatched', {
+      url,
+      started
+    })
     if (!started) {
       this.socketMode = 'browser'
       this.isNativeConnecting = false
@@ -939,6 +1000,13 @@ class WebSocketService {
   }
 
   connectBrowser(url, userInfo) {
+    logSocket('info', 'connectBrowser enter', {
+      url,
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      userInfo: summarizeSocketValue(userInfo)
+    })
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.isConnected) {
       console.log('WebSocket 已连接，跳过重复连接')
       return
@@ -970,8 +1038,14 @@ class WebSocketService {
     this.isNativeConnecting = false
     console.log('开始连接 WebSocket:', url, '用户信息:', userInfo)
     this.ws = new WebSocket(url)
+    logSocket('info', 'browser socket created', {
+      url
+    })
 
     this.ws.onopen = () => {
+      logSocket('info', 'browser socket open', {
+        url: this.lastUrl
+      })
       console.log('WebSocket 连接成功')
       this.isConnected = true
       this.isReady = true
@@ -985,6 +1059,10 @@ class WebSocketService {
     }
 
     this.ws.onmessage = (event) => {
+      logSocket('info', 'browser socket message', {
+        rawType: typeof event.data,
+        rawLength: typeof event.data === 'string' ? event.data.length : null
+      })
       try {
         const data = JSON.parse(event.data)
         this.handleMessage(data)
@@ -994,11 +1072,21 @@ class WebSocketService {
     }
 
     this.ws.onerror = (error) => {
+      logSocket('error', 'browser socket error', {
+        url: this.lastUrl,
+        readyState: this.ws?.readyState ?? null,
+        error: summarizeSocketValue(error)
+      })
       console.error('WebSocket 连接错误:', error)
       this.emit('error', error)
     }
 
     this.ws.onclose = () => {
+      logSocket('warn', 'browser socket close', {
+        url: this.lastUrl,
+        shouldReconnect: this.shouldReconnect,
+        readyState: this.ws?.readyState ?? null
+      })
       console.log('WebSocket 连接关闭')
       this.isConnected = false
       this.isReady = false
@@ -1010,6 +1098,9 @@ class WebSocketService {
   }
 
   handleNativeMessage(payload) {
+    logSocket('info', 'native socket message callback', {
+      payload: summarizeSocketValue(payload)
+    })
     const data = parseSocketPayload(payload)
 
     if (!data || typeof data !== 'object') {
@@ -1021,6 +1112,9 @@ class WebSocketService {
   }
 
   handleNativeStatus(payload) {
+    logSocket('info', 'native socket status callback', {
+      payload: summarizeSocketValue(payload)
+    })
     const status = parseSocketPayload(payload)
     const statusData = status && typeof status === 'object'
       ? status
@@ -1033,6 +1127,15 @@ class WebSocketService {
       || ERROR_NATIVE_STATES.includes(state)
       || CLOSED_NATIVE_STATES.includes(state)
       || (statusData.connected === false && statusData.ready === false && !connecting)
+
+    logSocket('info', 'native socket status parsed', {
+      state,
+      connected,
+      ready,
+      connecting,
+      failed,
+      statusData: summarizeSocketValue(statusData)
+    })
 
     if (connected || ready) {
       const wasReady = this.isReady
@@ -1074,6 +1177,10 @@ class WebSocketService {
   }
 
   handleMessage(data) {
+    logSocket('info', 'handleMessage', {
+      type: data?.type || null,
+      payload: summarizeSocketValue(data?.payload)
+    })
     switch (data.type) {
       case 'chat':
         console.log('收到聊天消息:', data.payload)
@@ -1102,6 +1209,13 @@ class WebSocketService {
   }
 
   send(data) {
+    logSocket('info', 'send requested', {
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      nativeConnected: isNativeWebSocketConnected(),
+      data: summarizeSocketValue(data)
+    })
     if (this.socketMode === 'native') {
       if (this.isSocketReady() || isNativeWebSocketConnected()) {
         sendNativeWebSocket(data)
@@ -1123,7 +1237,16 @@ class WebSocketService {
   }
 
   ensureConnected(url, userInfo, timeout = 8000) {
+    logSocket('info', 'ensureConnected enter', {
+      url,
+      timeout,
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      userInfo: summarizeSocketValue(userInfo)
+    })
     if (this.isSocketReady()) {
+      logSocket('info', 'ensureConnected short-circuit ready', {})
       return Promise.resolve()
     }
 
@@ -1153,6 +1276,10 @@ class WebSocketService {
         }
         settled = true
         cleanup()
+        logSocket('info', 'ensureConnected resolved on ready', {
+          connectUrl,
+          socketMode: this.socketMode
+        })
         resolve()
       }
 
@@ -1162,6 +1289,10 @@ class WebSocketService {
         }
         settled = true
         cleanup()
+        logSocket('error', 'ensureConnected rejected on error', {
+          connectUrl,
+          error: summarizeSocketValue(error)
+        })
         reject(error || new Error('WebSocket 连接失败'))
       }
 
@@ -1173,6 +1304,11 @@ class WebSocketService {
           this.isReady = false
         }
         cleanup()
+        logSocket('error', 'ensureConnected timeout', {
+          connectUrl,
+          socketMode: this.socketMode,
+          userInfo: summarizeSocketValue(connectUserInfo)
+        })
         reject(new Error('WebSocket 连接超时'))
       }, timeout)
 
@@ -1180,6 +1316,10 @@ class WebSocketService {
       this.on('error', handleError)
 
       this.connect(connectUrl, connectUserInfo, { force: true })
+      logSocket('info', 'ensureConnected dispatched connect', {
+        connectUrl,
+        userInfo: summarizeSocketValue(connectUserInfo)
+      })
 
       if (this.isSocketReady()) {
         handleReady()
@@ -1214,10 +1354,16 @@ class WebSocketService {
 
   reconnect() {
     if (this.reconnectTimer) {
+      logSocket('info', 'reconnect skipped: timer exists', {})
       return
     }
 
     this.reconnectTimer = setTimeout(() => {
+      logSocket('warn', 'reconnect timer fired', {
+        url: this.lastUrl || getDefaultWsUrl(),
+        socketMode: this.socketMode,
+        userInfo: summarizeSocketValue(this.userInfo)
+      })
       console.log('尝试重新连接 WebSocket...')
       this.reconnectTimer = null
       const url = this.lastUrl || getDefaultWsUrl()
@@ -1233,6 +1379,12 @@ class WebSocketService {
 
   close() {
     this.shouldReconnect = false
+    logSocket('info', 'close requested', {
+      socketMode: this.socketMode,
+      isConnected: this.isConnected,
+      isReady: this.isReady,
+      shouldReconnect: this.shouldReconnect
+    })
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null

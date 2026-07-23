@@ -3,10 +3,17 @@ import { setToken } from '@/utils/token'
 
 const getDXCHATNative = () => {
   if (typeof window === 'undefined') {
+    console.warn('[H5][Auth] window unavailable')
     return null
   }
 
-  return window.DXCHAT_NATIVE || null
+  const dxchat = window.DXCHAT_NATIVE || null
+  console.info('[H5][Auth] DXCHAT_NATIVE lookup:', {
+    available: Boolean(dxchat),
+    hasIsNative: Boolean(dxchat && typeof dxchat.isNative === 'function'),
+    hasGetSecurity: Boolean(dxchat && typeof dxchat.getSecurity === 'function')
+  })
+  return dxchat
 }
 
 const parsePayload = (payload) => {
@@ -51,20 +58,32 @@ export const extractExpire = (res) => {
 
 const syncUserStore = (userStore, authData, token) => {
   if (!userStore) {
+    console.warn('[H5][Auth] syncUserStore skipped: missing userStore')
     return
   }
 
   const data = authData?.data || authData || {}
+  const userId = data.id || data.userId || userStore.id || null
+  const username = data.username || data.userName || userStore.username || ''
 
   userStore.$patch({
     token,
-    id: data.id || data.userId || userStore.id || null,
-    username: data.username || data.userName || userStore.username || '',
+    id: userId,
+    username,
     avatar: data.avatar || userStore.avatar || '',
     gender: data.gender ?? userStore.gender ?? null,
     roleId: data.roleId ? Number(data.roleId) : (userStore.roleId || null),
     roleName: data.roleName || userStore.roleName || '',
     menus: Array.isArray(data.menus) ? data.menus : (userStore.menus || [])
+  })
+
+  console.info('[H5][Auth] user store synchronized:', {
+    userId,
+    username,
+    hasToken: Boolean(token),
+    hasAvatar: Boolean(data.avatar),
+    roleId: data.roleId || null,
+    menuCount: Array.isArray(data.menus) ? data.menus.length : (userStore.menus?.length || 0)
   })
 }
 
@@ -75,16 +94,36 @@ export const initAuth = async (options = {}) => {
     ? dxchat.isNative()
     : Boolean(dxchat?.isNative)
 
+  console.info('[H5][Auth] native capability:', {
+    isNative,
+    hasBridge: Boolean(dxchat),
+    hasGetSecurity: Boolean(dxchat && typeof dxchat.getSecurity === 'function')
+  })
+
   if (!isNative || typeof dxchat?.getSecurity !== 'function') {
+    console.warn('[H5][Auth] native auth skipped:', {
+      reason: !dxchat
+        ? 'DXCHAT_NATIVE missing'
+        : !isNative
+          ? 'isNative returned false'
+          : 'getSecurity missing'
+    })
     return null
   }
 
   return new Promise((resolve, reject) => {
+    console.info('[H5][Auth] calling DXCHAT_NATIVE.getSecurity')
     dxchat.getSecurity(
       async (payload) => {
         try {
           const authData = parsePayload(payload)
           const token = extractToken(authData)
+          console.info('[H5][Auth] getSecurity success:', {
+            payloadType: typeof payload,
+            payloadKeys: authData && typeof authData === 'object' ? Object.keys(authData) : [],
+            hasToken: Boolean(token),
+            hasExpire: Boolean(extractExpire(authData))
+          })
 
           if (!token) {
             throw new Error('Native auth payload did not include a token')
@@ -92,7 +131,14 @@ export const initAuth = async (options = {}) => {
 
           const expire = extractExpire(authData)
           setToken(token, expire)
+          console.info('[H5][Auth] token stored, calling getUserInfo')
           const userInfo = await getUserInfo()
+          console.info('[H5][Auth] getUserInfo success:', {
+            responseKeys: userInfo && typeof userInfo === 'object' ? Object.keys(userInfo) : [],
+            dataKeys: userInfo?.data && typeof userInfo.data === 'object'
+              ? Object.keys(userInfo.data)
+              : []
+          })
           syncUserStore(userStore, userInfo, token)
           resolve({
             token,
@@ -100,10 +146,15 @@ export const initAuth = async (options = {}) => {
             userInfo
           })
         } catch (error) {
+          console.error('[H5][Auth] getSecurity success callback failed:', error)
           reject(error)
         }
       },
       (error) => {
+        console.error('[H5][Auth] getSecurity error callback:', {
+          payloadType: typeof error,
+          payloadKeys: error && typeof error === 'object' ? Object.keys(error) : []
+        })
         reject(parsePayload(error) || new Error('Native auth failed'))
       }
     )
