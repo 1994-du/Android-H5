@@ -1,12 +1,12 @@
 import { getUserInfo } from '@/api/auth'
 import { setToken } from '@/utils/token'
 
-const getDXCHAT = () => {
+const getDXCHATNative = () => {
   if (typeof window === 'undefined') {
     return null
   }
 
-  return window.DXCHAT || null
+  return window.DXCHAT_NATIVE || null
 }
 
 const parsePayload = (payload) => {
@@ -70,7 +70,7 @@ const syncUserStore = (userStore, authData, token) => {
 
 export const initAuth = async (options = {}) => {
   const { userStore } = options
-  const dxchat = getDXCHAT()
+  const dxchat = getDXCHATNative()
   const isNative = typeof dxchat?.isNative === 'function'
     ? dxchat.isNative()
     : Boolean(dxchat?.isNative)
