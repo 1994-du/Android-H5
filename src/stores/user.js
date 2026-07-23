@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import wsService from '@/utils/websocket'
 import { removeToken, setToken } from '@/utils/token'
+import { resolveUserProfile } from '@/utils/userProfile'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -21,31 +22,31 @@ export const useUserStore = defineStore('user', {
   actions: {
     setUserInfo(info) {
       console.log('设置用户信息:', info)
-      if (info && info.data) {
-        const token = info.data.token || info.token || info.data.accessToken || info.accessToken || ''
-        const expire = info.data.expire || info.data.expiresAt || info.expire || info.expiresAt || null
-        const id = info.data.id || info.data.userId
-        this.id = id ? Number(id) : null
-        this.avatar = info.data.avatar || ''
-        this.token = token
-        this.username = info.data.username || ''
-        this.gender = info.data.gender ?? null
-        this.roleId = info.data.roleId ? Number(info.data.roleId) : null
-        this.roleName = info.data.roleName || ''
+      if (!info) {
+        return
+      }
 
-        if (this.token) {
-          setToken(this.token, expire)
-        }
-        
-        if (info.data.menus) {
-          this.menus = info.data.menus
-        }
+      const profile = resolveUserProfile(info, this)
+      const token = info?.data?.token || info?.token || info?.data?.accessToken || info?.accessToken || this.token || ''
+      const expire = info?.data?.expire || info?.data?.expiresAt || info?.expire || info?.expiresAt || null
+
+      this.id = profile.userId
+      this.avatar = profile.avatar
+      this.token = token
+      this.username = profile.username
+      this.gender = profile.gender
+      this.roleId = profile.roleId
+      this.roleName = profile.roleName
+      this.menus = profile.menus
+
+      if (this.token) {
+        setToken(this.token, expire)
       }
     },
     clearUserInfo() {
-      // 退出登录前断开WebSocket连接并发送下线通知
+      // 退出登录前断开 WebSocket 连接并发送下线通知
       wsService.close()
-      
+
       this.id = null
       this.avatar = ''
       this.token = ''

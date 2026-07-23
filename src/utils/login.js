@@ -1,5 +1,6 @@
 import { getUserInfo } from '@/api/auth'
 import { setToken } from '@/utils/token'
+import { resolveUserProfile } from '@/utils/userProfile'
 
 const getDXCHATNative = () => {
   if (typeof window === 'undefined') {
@@ -93,28 +94,26 @@ const syncUserStore = (userStore, authData, token) => {
     return
   }
 
-  const data = authData?.data || authData || {}
-  const userId = data.id || data.userId || userStore.id || null
-  const username = data.username || data.userName || userStore.username || ''
+  const profile = resolveUserProfile(authData, userStore)
 
   userStore.$patch({
     token,
-    id: userId,
-    username,
-    avatar: data.avatar || userStore.avatar || '',
-    gender: data.gender ?? userStore.gender ?? null,
-    roleId: data.roleId ? Number(data.roleId) : (userStore.roleId || null),
-    roleName: data.roleName || userStore.roleName || '',
-    menus: Array.isArray(data.menus) ? data.menus : (userStore.menus || [])
+    id: profile.userId,
+    username: profile.username,
+    avatar: profile.avatar,
+    gender: profile.gender,
+    roleId: profile.roleId,
+    roleName: profile.roleName,
+    menus: profile.menus
   })
 
   console.info('[H5][Auth] user store synchronized:', {
-    userId,
-    username,
+    userId: profile.userId,
+    username: profile.username,
     hasToken: Boolean(token),
-    hasAvatar: Boolean(data.avatar),
-    roleId: data.roleId || null,
-    menuCount: Array.isArray(data.menus) ? data.menus.length : (userStore.menus?.length || 0)
+    hasAvatar: Boolean(profile.avatar),
+    roleId: profile.roleId ?? null,
+    menuCount: Array.isArray(profile.menus) ? profile.menus.length : 0
   })
 }
 

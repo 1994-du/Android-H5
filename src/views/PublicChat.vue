@@ -1454,7 +1454,12 @@ onMounted(() => {
   scrollToBottom()
   nextTick(() => {
     resizeTextarea()
-    void initWebSocket({ silent: true })
+    const { hasAuth } = getChatAuthContext()
+    if (hasAuth) {
+      void initWebSocket({ silent: true })
+    } else {
+      console.info('[H5][PublicChat] skip initial websocket connect: auth incomplete')
+    }
   })
   
   wsService.on('ready', handleReady)
