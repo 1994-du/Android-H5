@@ -53,6 +53,23 @@ const userStore = useUserStore()
 
 const avatarUrl = computed(() => wsService.getAvatarUrl(userStore.avatar))
 
+const logoutNative = async () => {
+  const nativeBridge = window.DXCHAT_NATIVE
+
+  if (typeof nativeBridge?.logout !== 'function') {
+    console.info('[H5][Auth] native logout skipped: DXCHAT_NATIVE.logout missing')
+    return
+  }
+
+  try {
+    console.info('[H5][Auth] calling DXCHAT_NATIVE.logout')
+    await Promise.resolve(nativeBridge.logout())
+    console.info('[H5][Auth] DXCHAT_NATIVE.logout completed')
+  } catch (error) {
+    console.error('[H5][Auth] DXCHAT_NATIVE.logout failed:', error)
+  }
+}
+
 const handleLogout = async () => {
   try {
     await showConfirmDialog({
@@ -65,6 +82,7 @@ const handleLogout = async () => {
       className: 'logout-dialog'
     })
     
+    await logoutNative()
     userStore.clearUserInfo()
     localStorage.removeItem('username')
     
