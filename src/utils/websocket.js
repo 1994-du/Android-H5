@@ -117,7 +117,9 @@ const summarizeSocketValue = (value) => {
       state: value.state ?? value.status ?? null,
       connected: value.connected ?? null,
       ready: value.ready ?? null,
-      typeField: value.type ?? value.messageType ?? null
+      typeField: value.type ?? value.messageType ?? null,
+      reason: value.reason ?? null,
+      error: value.error ?? null
     }
   }
 
@@ -1119,25 +1121,31 @@ class WebSocketService {
     const statusData = status && typeof status === 'object'
       ? status
       : { state: String(status || '') }
-    const state = String(statusData.state || statusData.status || '').toLowerCase()
-    const connected = normalizeBoolean(statusData.connected) || CONNECTED_NATIVE_STATES.includes(state)
-    const ready = normalizeBoolean(statusData.ready) || connected
-    const connecting = CONNECTING_NATIVE_STATES.includes(state)
-    const failed = Boolean(statusData.error)
-      || ERROR_NATIVE_STATES.includes(state)
-      || CLOSED_NATIVE_STATES.includes(state)
-      || (statusData.connected === false && statusData.ready === false && !connecting)
+    const state = String(statusData.state || statusData.status || '').trim().toLowerCase()
+    const reason = String(statusData.reason || '').trim()
+    const isConnectedState = CONNECTED_NATIVE_STATES.includes(state)
+    const isConnectingState = CONNECTING_NATIVE_STATES.includes(state)
+    const isClosedState = CLOSED_NATIVE_STATES.includes(state)
+    const isFailedState = ERROR_NATIVE_STATES.includes(state) || Boolean(statusData.error)
+    const isClosedByH5 = isClosedState && reason === 'Closed by H5'
+    const connected = !isClosedState && !isFailedState
+      && (normalizeBoolean(statusData.connected) || isConnectedState)
+    const ready = !isClosedState && !isFailedState
+      && (normalizeBoolean(statusData.ready) || connected)
+    const failed = isFailedState || isClosedState
 
     logSocket('info', 'native socket status parsed', {
       state,
+      reason,
       connected,
       ready,
-      connecting,
+      connecting: isConnectingState,
+      closedByH5: isClosedByH5,
       failed,
       statusData: summarizeSocketValue(statusData)
     })
 
-    if (connected || ready) {
+    if (isConnectedState || connected || ready) {
       const wasReady = this.isReady
       this.socketMode = 'native'
       this.isNativeConnecting = false
@@ -1154,11 +1162,20 @@ class WebSocketService {
       return
     }
 
-    if (connecting) {
+    if (isConnectingState) {
       this.socketMode = 'native'
       this.isNativeConnecting = true
       this.isConnected = false
       this.isReady = false
+      return
+    }
+
+    if (isClosedByH5) {
+      this.isNativeConnecting = false
+      this.isConnected = false
+      this.isReady = false
+      console.log('WebSocket 已主动关闭:', statusData)
+      this.emit('close', statusData)
       return
     }
 
