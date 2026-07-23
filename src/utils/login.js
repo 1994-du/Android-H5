@@ -1,4 +1,4 @@
-import { getUserInfo, login as loginApi } from '@/api/auth'
+import { getUserInfo } from '@/api/auth'
 import { setToken } from '@/utils/token'
 
 const getDXCHAT = () => {
@@ -87,7 +87,7 @@ export const initAuth = async (options = {}) => {
           const token = extractToken(authData)
 
           if (!token) {
-            throw new Error('原生未返回可用令牌')
+            throw new Error('Native auth payload did not include a token')
           }
 
           const expire = extractExpire(authData)
@@ -104,31 +104,10 @@ export const initAuth = async (options = {}) => {
         }
       },
       (error) => {
-        reject(parsePayload(error) || new Error('原生鉴权失败'))
+        reject(parsePayload(error) || new Error('Native auth failed'))
       }
     )
   })
 }
 
-export const loginByPassword = async (data, options = {}) => {
-  const { userStore } = options
-  const res = await loginApi(data)
-
-  const token = extractToken(res)
-
-  if (!token) {
-    throw new Error('登录成功但未获取到 token')
-  }
-
-  const expire = extractExpire(res)
-
-  if (userStore?.setUserInfo) {
-    userStore.setUserInfo(res)
-  } else {
-    setToken(token, expire)
-  }
-
-  return res
-}
-
-export default loginByPassword
+export default initAuth
