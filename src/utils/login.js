@@ -1,7 +1,3 @@
-import { getUserInfo } from '@/api/auth'
-import { setToken } from '@/utils/token'
-import { resolveUserProfile } from '@/utils/userProfile'
-
 const getDXCHATNative = () => {
   if (typeof window === 'undefined') {
     console.warn('[H5][Auth] window unavailable')
@@ -88,37 +84,7 @@ export const extractExpire = (res) => {
     || null
 }
 
-const syncUserStore = (userStore, authData, token) => {
-  if (!userStore) {
-    console.warn('[H5][Auth] syncUserStore skipped: missing userStore')
-    return
-  }
-
-  const profile = resolveUserProfile(authData, userStore)
-
-  userStore.$patch({
-    token,
-    id: profile.userId,
-    username: profile.username,
-    avatar: profile.avatar,
-    gender: profile.gender,
-    roleId: profile.roleId,
-    roleName: profile.roleName,
-    menus: profile.menus
-  })
-
-  console.info('[H5][Auth] user store synchronized:', {
-    userId: profile.userId,
-    username: profile.username,
-    hasToken: Boolean(token),
-    hasAvatar: Boolean(profile.avatar),
-    roleId: profile.roleId ?? null,
-    menuCount: Array.isArray(profile.menus) ? profile.menus.length : 0
-  })
-}
-
-export const initAuth = async (options = {}) => {
-  const { userStore } = options
+export const initAuth = async () => {
   const dxchat = await waitForDXCHATNative()
   const isNative = typeof dxchat?.isNative === 'function'
     ? dxchat.isNative()
@@ -152,7 +118,13 @@ export const initAuth = async (options = {}) => {
             payloadType: typeof payload,
             payloadKeys: authData && typeof authData === 'object' ? Object.keys(authData) : [],
             hasToken: Boolean(token),
-            hasExpire: Boolean(extractExpire(authData))
+            hasExpire: Boolean(extractExpire(authData)),
+            hasUserId: Boolean(
+              authData?.userId
+              || authData?.id
+              || authData?.data?.userId
+              || authData?.data?.id
+            )
           })
 
           if (!token) {
@@ -160,37 +132,15 @@ export const initAuth = async (options = {}) => {
           }
 
           const expire = extractExpire(authData)
-          setToken(token, expire)
-          syncUserStore(userStore, authData, token)
-          console.info('[H5][Auth] native identity synchronized:', {
-            userId: userStore?.id || null,
-            username: userStore?.username || '',
-            hasToken: Boolean(userStore?.token)
+          console.info('[H5][Auth] native token resolved:', {
+            hasToken: Boolean(token),
+            hasExpire: Boolean(expire)
           })
-
-          let userInfo = null
-          try {
-            console.info('[H5][Auth] token stored, calling getUserInfo')
-            userInfo = await getUserInfo()
-            console.info('[H5][Auth] getUserInfo success:', {
-              responseKeys: userInfo && typeof userInfo === 'object' ? Object.keys(userInfo) : [],
-              dataKeys: userInfo?.data && typeof userInfo.data === 'object'
-                ? Object.keys(userInfo.data)
-                : []
-            })
-            syncUserStore(userStore, userInfo, token)
-          } catch (error) {
-            console.error('[H5][Auth] getUserInfo failed after native auth:', error)
-            if (!userStore?.id) {
-              throw error
-            }
-            console.warn('[H5][Auth] continuing with native identity because userId is available')
-          }
 
           resolve({
             token,
             expire,
-            userInfo
+            authData
           })
         } catch (error) {
           console.error('[H5][Auth] getSecurity success callback failed:', error)

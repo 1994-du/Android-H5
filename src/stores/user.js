@@ -20,6 +20,22 @@ export const useUserStore = defineStore('user', {
     getUsername: (state) => state.username
   },
   actions: {
+    setAuthSession(authData, token = '', expire = null) {
+      const profile = resolveUserProfile(authData, this)
+
+      this.id = profile.userId
+      this.avatar = profile.avatar
+      this.username = profile.username
+      this.gender = profile.gender
+      this.roleId = profile.roleId
+      this.roleName = profile.roleName
+      this.menus = profile.menus
+      this.token = token || this.token || ''
+
+      if (this.token) {
+        setToken(this.token, expire)
+      }
+    },
     setUserInfo(info) {
       console.log('设置用户信息:', info)
       if (!info) {

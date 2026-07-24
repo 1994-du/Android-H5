@@ -28,47 +28,43 @@ window.addEventListener('statusBarReady', () => {
   )
 })
 
-const bootstrap = () => {
-  console.info('[H5][Bootstrap] start:', {
-    mode: import.meta.env.MODE,
-    projectUrl: import.meta.env.VITE_PROJECT_URL || '',
-    userAgent: navigator.userAgent
-  })
-
-  const app = createApp(App)
-  const pinia = createPinia()
-  pinia.use(piniaPluginPersistedstate)
-
-  const userStore = useUserStore(pinia)
-  console.info('[H5][Bootstrap] user store created:', {
-    hasToken: Boolean(userStore.token),
-    userId: userStore.id || null,
-    username: userStore.username || ''
-  })
-
-  console.info('[H5][Auth] initAuth begin')
-  const authPromise = initAuth({ userStore })
-
-  app.use(Vant)
-  app.use(pinia)
-  app.use(router)
-  app.mount('#app')
-  console.info('[H5][Bootstrap] app mounted')
-
-  authPromise
-    .then((authResult) => {
-      console.info('[H5][Auth] initAuth complete:', {
-        handled: Boolean(authResult),
-        hasToken: Boolean(authResult?.token || userStore.token),
-        userId: userStore.id || null,
-        username: userStore.username || ''
-      })
-    })
-    .catch((error) => {
-      console.error('[H5][Auth] initAuth failed:', error)
-    })
-}
-
-bootstrap().catch((error) => {
-  console.error('[H5][Bootstrap] fatal error:', error)
+console.info('[H5][Bootstrap] start:', {
+  mode: import.meta.env.MODE,
+  projectUrl: import.meta.env.VITE_PROJECT_URL || '',
+  userAgent: navigator.userAgent
 })
+
+const app = createApp(App)
+const pinia = createPinia()
+pinia.use(piniaPluginPersistedstate)
+
+const userStore = useUserStore(pinia)
+console.info('[H5][Bootstrap] user store created:', {
+  hasToken: Boolean(userStore.token),
+  userId: userStore.id || null,
+  username: userStore.username || ''
+})
+
+app.use(Vant)
+app.use(pinia)
+app.use(router)
+app.mount('#app')
+console.info('[H5][Bootstrap] app mounted')
+
+console.info('[H5][Auth] initAuth begin')
+initAuth()
+  .then((authResult) => {
+    if (authResult?.token) {
+      userStore.setAuthSession(authResult.authData, authResult.token, authResult.expire)
+    }
+
+    console.info('[H5][Auth] initAuth complete:', {
+      handled: Boolean(authResult),
+      hasToken: Boolean(authResult?.token || userStore.token),
+      userId: userStore.id || null,
+      username: userStore.username || ''
+    })
+  })
+  .catch((error) => {
+    console.error('[H5][Auth] initAuth failed:', error)
+  })

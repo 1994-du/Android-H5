@@ -42,16 +42,45 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onActivated, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
+import { getUserInfo } from '@/api/auth'
 import { useUserStore } from '@/stores/user'
 import wsService from '@/utils/websocket'
 
 const router = useRouter()
 const userStore = useUserStore()
+const isProfileLoading = ref(false)
 
 const avatarUrl = computed(() => wsService.getAvatarUrl(userStore.avatar))
+
+const loadUserProfile = async () => {
+  if (isProfileLoading.value) {
+    return
+  }
+
+  if (!userStore.token) {
+    console.info('[H5][About] skip /me request: missing token')
+    return
+  }
+
+  isProfileLoading.value = true
+  try {
+    console.info('[H5][About] requesting /me')
+    const profile = await getUserInfo()
+    userStore.setUserInfo(profile)
+    console.info('[H5][About] /me synchronized:', {
+      userId: userStore.id || null,
+      username: userStore.username || '',
+      hasAvatar: Boolean(userStore.avatar)
+    })
+  } catch (error) {
+    console.error('[H5][About] /me request failed:', error)
+  } finally {
+    isProfileLoading.value = false
+  }
+}
 
 const logoutNative = async () => {
   const nativeBridge = window.DXCHAT_NATIVE
@@ -96,6 +125,14 @@ const handleLogout = async () => {
     // 用户取消
   }
 }
+
+onMounted(() => {
+  void loadUserProfile()
+})
+
+onActivated(() => {
+  void loadUserProfile()
+})
 </script>
 
 <style scoped lang="less">
